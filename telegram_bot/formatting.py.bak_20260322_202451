@@ -1,0 +1,472 @@
+"""
+Formatting helpers for all Telegram messages and inline keyboards.
+"""
+from __future__ import annotations
+from datetime import date, datetime
+from typing import Optional
+
+# ── Constants ──────────────────────────────────────────────────────────────
+
+PHASE_NAMES = {
+    1: "Base & Foundation",
+    2: "Early Quality",
+    3: "Peak Quality",
+    4: "Race Prep & Taper",
+}
+
+PHASE_EMOJIS = {1: "🧱", 2: "⚙️", 3: "🔥", 4: "🎯"}
+
+DAY_EMOJIS = {
+    "Mon": "😴", "Tue": "⚡", "Wed": "🐢",
+    "Thu": "🏃", "Fri": "🐢", "Sat": "🏔️", "Sun": "🧘",
+}
+
+DAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+WEEKDAY_TO_DAY = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
+
+
+# ── Inline keyboard builder ────────────────────────────────────────────────
+
+def main_menu_keyboard():
+    """Persistent inline keyboard shown with every main view."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🏃 Today",     callback_data="today"),
+            InlineKeyboardButton("📅 This Week", callback_data="plan"),
+        ],
+        [
+            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard"),
+            InlineKeyboardButton("📝 Log Run",   callback_data="log"),
+        ],
+        [
+            InlineKeyboardButton("🎯 Paces",     callback_data="paces"),
+            InlineKeyboardButton("⚙️ Settings",  callback_data="settings"),
+        ],
+    ])
+
+
+def back_keyboard():
+    """Single back-to-menu button."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("← Menu", callback_data="menu"),
+    ]])
+
+
+def today_keyboard(logged: bool = False):
+    """Keyboard shown under Today's run."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    log_label = "✅ Already logged" if logged else "📝 Log this run"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(log_label, callback_data="log")],
+        [
+            InlineKeyboardButton("📅 Full week", callback_data="plan"),
+            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard"),
+        ],
+        [InlineKeyboardButton("← Menu", callback_data="menu")],
+    ])
+
+
+def plan_keyboard():
+    """Keyboard shown under weekly plan."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🏃 Today",     callback_data="today"),
+            InlineKeyboardButton("📊 Dashboard", callback_data="dashboard"),
+        ],
+        [InlineKeyboardButton("← Menu", callback_data="menu")],
+    ])
+
+
+def dashboard_keyboard():
+    """Keyboard shown under dashboard."""
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🏃 Today",     callback_data="today"),
+            InlineKeyboardButton("📅 This Week", callback_data="plan"),
+        ],
+        [
+            InlineKeyboardButton("📝 Log Run",   callback_data="log"),
+            InlineKeyboardButton("🎯 Paces",     callback_data="paces"),
+        ],
+        [InlineKeyboardButton("← Menu", callback_data="menu")],
+    ])
+
+
+# ── Main menu message ──────────────────────────────────────────────────────
+
+def format_main_menu(athlete_name: str, plan_type: str = "full") -> str:
+    if plan_type == "c25k":
+        return (
+            f"👋 Hey *{athlete_name}*! You're on the *Couch to 5K* programme.\n\n"
+            "What would you like to do?"
+        )
+    return (
+        f"👋 Hey *{athlete_name}*! What would you like to do?"
+    )
+
+
+# ── Today's run ────────────────────────────────────────────────────────────
+
+def format_today(week: dict, logged_today: bool = False) -> str:
+    """
+    Show just today's session from the week plan.
+    Falls back to tomorrow if today is rest.
+    """
+    today_key = WEEKDAY_TO_DAY.get(date.today().weekday(), "Mon")
+    plan_type = week.get("plan_type", "full")
+
+    if plan_type == "c25k":
+        return _format_today_c25k(week, today_key)
+
+    days = week.get("days", {})
+    session = days.get(today_key, {})
+    emoji = DAY_EMOJIS.get(today_key, "•")
+    phase_num = week.get("phase", 1)
+    phase_emoji = PHASE_EMOJIS.get(phase_num, "")
+    phase_name = PHASE_NAMES.get(phase_num, "Training")
+    week_num = week.get("week_number", "?")
+    total_vol = week.get("planned_volume_km", 0)
+
+    lines = [
+        f"🗓️ *Today — {today_key}* | Week {week_num} | {phase_emoji} Phase {phase_num}",
+        "",
+    ]
+
+    session_name = session.get("session", "Rest")
+    km = session.get("km", 0)
+    notes = session.get("notes", "")
+
+    if session_name == "Rest" or km == 0:
+        lines += [
+            f"*{emoji} {session_name}*",
+            "",
+            "Rest day — recovery is part of the programme.",
+            "Use this time to eat well, sleep, and let adaptations happen.",
+        ]
+    else:
+        lines += [
+            f"*{emoji} {session_name}* — _{km} km_",
+            "",
+            f"{notes}",
+        ]
+
+    if logged_today:
+        lines += ["", "✅ _You've already logged today's run._"]
+
+    # Footer context
+    lines += [
+        "",
+        f"─────────────────",
+        f"📊 Week target: *{total_vol} km* | {phase_name}",
+    ]
+    return "\n".join(lines)
+
+
+def _format_today_c25k(week: dict, today_key: str) -> str:
+    """Today view for C25K athletes."""
+    wn = week.get("week_number", "?")
+    run_days = {"Mon", "Wed", "Fri"}
+    days = week.get("days", {})
+    session = days.get(today_key, {})
+    total_min = week.get("total_minutes", 30)
+    run_min = week.get("total_run_minutes_per_session", 0)
+
+    is_run_day = today_key in run_days
+    lines = [f"🗓️ *Today — {today_key}* | C25K Week {wn} of 12", ""]
+
+    if is_run_day:
+        notes = session.get("notes", "")
+        lines += [
+            f"*🌱 Run/Walk Session*",
+            f"Duration: ~{total_min} min | Running: ~{run_min:.0f} min",
+            "",
+            notes,
+        ]
+    else:
+        lines += [
+            "*😴 Rest / Cross-Train Day*",
+            "",
+            session.get("notes", "Active recovery — gentle walk or full rest."),
+        ]
+
+    return "\n".join(lines)
+
+
+# ── Weekly plan ────────────────────────────────────────────────────────────
+
+def format_week(week: dict) -> str:
+    """Full week plan — compact format with inline keyboard underneath."""
+    phase_num = week.get("phase", 1)
+    phase_name = PHASE_NAMES.get(phase_num, "Training")
+    phase_emoji = PHASE_EMOJIS.get(phase_num, "")
+    week_num = week.get("week_number", "?")
+    total_vol = week.get("planned_volume_km", 0)
+    week_start = week.get("week_start", "")
+
+    today_key = WEEKDAY_TO_DAY.get(date.today().weekday(), "Mon")
+
+    lines = [
+        f"📅 *Week {week_num}* — {phase_emoji} Phase {phase_num}: {phase_name}",
+        f"📊 Target: *{total_vol} km*  |  Starts {week_start}",
+        "",
+    ]
+
+    for day in DAY_ORDER:
+        session = week.get("days", {}).get(day, {})
+        emoji = DAY_EMOJIS.get(day, "•")
+        is_today = " ← today" if day == today_key else ""
+        name = session.get("session", "Rest")
+        km = session.get("km", 0)
+        km_str = f" _{km} km_" if km > 0 else ""
+        lines.append(f"{emoji} *{day}*{is_today} — {name}{km_str}")
+
+        # Show notes only for quality and long run sessions (keep it concise)
+        notes = session.get("notes", "")
+        if notes and name not in ("Rest", "Cross-Train / Rest", "Back-to-Back Long Run"):
+            # Truncate long notes
+            short_note = notes[:120] + "…" if len(notes) > 120 else notes
+            lines.append(f"   _{short_note}_")
+
+    return "\n".join(lines)
+
+
+def format_c25k_week(week: dict) -> str:
+    """C25K week plan."""
+    wn = week.get("week_number", "?")
+    total_min = week.get("total_minutes", 30)
+    run_min = week.get("total_run_minutes_per_session", 0)
+    est_km = week.get("estimated_km_per_session", 0)
+    today_key = WEEKDAY_TO_DAY.get(date.today().weekday(), "Mon")
+
+    lines = [
+        f"🌱 *C25K — Week {wn} of 12*",
+        f"⏱️ ~{total_min} min per session | ~{run_min:.0f} min running | est. {est_km} km",
+        "",
+    ]
+
+    for day in DAY_ORDER:
+        session = week.get("days", {}).get(day, {})
+        emoji = DAY_EMOJIS.get(day, "•")
+        is_today = " ← today" if day == today_key else ""
+        name = session.get("session", "Rest")
+        lines.append(f"{emoji} *{day}*{is_today} — {name}")
+
+    mon = week.get("days", {}).get("Mon", {})
+    if mon.get("notes"):
+        lines += ["", f"📋 *Workout:* {mon['notes']}"]
+
+    return "\n".join(lines)
+
+
+# ── Dashboard ──────────────────────────────────────────────────────────────
+
+def format_dashboard(
+    athlete: dict,
+    week: dict,
+    log_summary: dict,
+) -> str:
+    """
+    Full dashboard snapshot.
+
+    athlete:     GET /athlete response
+    week:        GET /plan/current response
+    log_summary: GET /log/{id}/week/{n}/summary response
+    """
+    plan_type = athlete.get("plan_type", "full")
+
+    if plan_type == "c25k":
+        return _format_c25k_dashboard(athlete, week, log_summary)
+
+    # ── Pull data ──────────────────────────────────────────────────────────
+    name          = athlete.get("name", "Athlete")
+    vdot          = athlete.get("vdot", "?")
+    race_distance = athlete.get("race_distance", "")
+    race_date_str = athlete.get("race_date", "")
+    week_num      = week.get("week_number", 1)
+    total_weeks   = week.get("total_weeks", week_num)  # may not be present — fallback
+    phase_num     = week.get("phase", 1)
+    phase_name    = PHASE_NAMES.get(phase_num, "Training")
+    phase_emoji   = PHASE_EMOJIS.get(phase_num, "")
+    planned_vol   = week.get("planned_volume_km", 0)
+
+    actual_vol    = log_summary.get("actual_volume_km", 0)
+    sessions_done = log_summary.get("sessions_logged", 0)
+    avg_rpe       = log_summary.get("avg_rpe")
+    runs          = log_summary.get("runs", [])
+
+    # Days till race
+    days_left = "?"
+    if race_date_str:
+        try:
+            race_dt = date.fromisoformat(race_date_str)
+            days_left = max(0, (race_dt - date.today()).days)
+        except ValueError:
+            pass
+
+    # Compliance bar
+    compliance = actual_vol / max(planned_vol, 0.1)
+    bar_filled = min(10, round(compliance * 10))
+    bar = "▓" * bar_filled + "░" * (10 - bar_filled)
+    pct = round(compliance * 100)
+
+    # Days logged this week
+    logged_days = {r["day"] for r in runs}
+    today_key = WEEKDAY_TO_DAY.get(date.today().weekday(), "Mon")
+    day_row = []
+    for d in DAY_ORDER:
+        session = week.get("days", {}).get(d, {})
+        is_rest = session.get("km", 0) == 0
+        is_today = d == today_key
+        if d in logged_days:
+            marker = "✅"
+        elif is_rest:
+            marker = "😴"
+        elif is_today:
+            marker = "⏳"
+        else:
+            marker = "·"
+        day_row.append(f"{marker}{d[:2]}")
+
+    days_str = "  ".join(day_row)
+
+    # RPE note
+    rpe_note = ""
+    if avg_rpe is not None:
+        if avg_rpe >= 8.5:
+            rpe_note = f"  🟠 avg RPE {avg_rpe:.1f} — high load this week"
+        elif avg_rpe <= 5.5:
+            rpe_note = f"  🟢 avg RPE {avg_rpe:.1f} — feeling good"
+        else:
+            rpe_note = f"  avg RPE {avg_rpe:.1f}"
+
+    dist_label = {
+        "5k": "5K", "10k": "10K", "half": "Half Marathon",
+        "marathon": "Marathon", "ultra": "Ultra",
+    }.get(race_distance, race_distance.title())
+
+    lines = [
+        f"📊 *Dashboard — {name}*",
+        f"",
+        f"{'─' * 28}",
+        f"📍 *Race:* {dist_label}  |  ⏰ *{days_left} days* to go",
+        f"{'─' * 28}",
+        f"",
+        f"{phase_emoji} *Phase {phase_num}* — {phase_name}",
+        f"📅 Week *{week_num}* of *?*  |  VDOT *{vdot}*",
+        f"",
+        f"{'─' * 28}",
+        f"*This Week*",
+        f"Plan:    *{planned_vol} km*",
+        f"Logged:  *{actual_vol} km*  ({pct}%)",
+        f"`{bar}` {pct}%{rpe_note}",
+        f"",
+        f"{days_str}",
+        f"{'─' * 28}",
+    ]
+
+    return "\n".join(lines)
+
+
+def _format_c25k_dashboard(athlete: dict, week: dict, log_summary: dict) -> str:
+    name       = athlete.get("name", "Athlete")
+    c25k_week  = athlete.get("c25k_week", 1)
+    runs       = log_summary.get("runs", [])
+    sessions_done = log_summary.get("sessions_logged", 0)
+
+    logged_days = {r["day"] for r in runs}
+    today_key = WEEKDAY_TO_DAY.get(date.today().weekday(), "Mon")
+    run_days = ["Mon", "Wed", "Fri"]
+
+    day_row = []
+    for d in DAY_ORDER:
+        is_run = d in run_days
+        if d in logged_days:
+            marker = "✅"
+        elif d == today_key and is_run:
+            marker = "⏳"
+        elif not is_run:
+            marker = "😴"
+        else:
+            marker = "·"
+        day_row.append(f"{marker}{d[:2]}")
+
+    days_str = "  ".join(day_row)
+    sessions_remaining = max(0, 3 - sessions_done)
+    prog_bar_filled = min(10, round((c25k_week / 12) * 10))
+    prog_bar = "▓" * prog_bar_filled + "░" * (10 - prog_bar_filled)
+
+    lines = [
+        f"📊 *Dashboard — {name}*",
+        f"",
+        f"{'─' * 28}",
+        f"🌱 *Couch to 5K*",
+        f"`{prog_bar}` Week {c25k_week} / 12",
+        f"{'─' * 28}",
+        f"",
+        f"*This Week (Week {c25k_week})*",
+        f"Sessions done:     *{sessions_done} / 3*",
+        f"Sessions left:     *{sessions_remaining}*",
+        f"",
+        f"{days_str}",
+        f"{'─' * 28}",
+        f"",
+        f"_Complete week 12 to unlock your first race plan!_",
+    ]
+    return "\n".join(lines)
+
+
+# ── Paces ──────────────────────────────────────────────────────────────────
+
+def format_paces(paces: dict) -> str:
+    return (
+        f"🎯 *Training Paces* \\(VDOT {paces['vdot']}\\)\n\n"
+        f"Easy \\(E\\)        `{paces['easy']}`\n"
+        f"Marathon \\(M\\)    `{paces['marathon']}`\n"
+        f"Threshold \\(T\\)   `{paces['threshold']}`\n"
+        f"Interval \\(I\\)    `{paces['interval']}`\n"
+        f"Repetition \\(R\\)  `{paces['repetition']}`"
+    )
+
+
+# ── TRUEPACE ───────────────────────────────────────────────────────────────
+
+def format_truepace(data: dict) -> str:
+    """Format TRUEPACE weather block. Returns '' if nothing to show."""
+    if not data.get("available"):
+        reason = data.get("reason", "")
+        if "No location" in reason or "Add your location" in reason:
+            return f"📍 *TRUEPACE:* {reason}"
+        return ""
+
+    w = data.get("weather", {})
+    adj_pct = data.get("adjustment_pct", 0)
+
+    if adj_pct == 0:
+        return (
+            f"🌤️ *TRUEPACE:* {w.get('temperature', '?'):.0f}°C — "
+            "ideal conditions, run at planned pace."
+        )
+
+    lines = [
+        f"🌡️ *TRUEPACE* — {w.get('temperature', '?'):.0f}°C · dew {w.get('dew_point', '?'):.0f}°C · *+{adj_pct}% slower*",
+    ]
+
+    planned  = data.get("planned_paces", {})
+    adjusted = data.get("adjusted_paces", {})
+    zones    = [("easy", "E"), ("threshold", "T"), ("interval", "I")]
+    pace_parts = []
+    for zone, label in zones:
+        if zone in adjusted:
+            pace_parts.append(f"{label}: *{adjusted[zone]}*")
+    if pace_parts:
+        lines.append("  " + "  |  ".join(pace_parts))
+
+    for msg in data.get("messages", []):
+        if "🔴" in msg or "⚡" in msg:
+            lines.append(msg)
+
+    return "\n".join(lines)

@@ -1,0 +1,67 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# Bot persistence & logs
+bot_persistence.pkl
+bot_crash.log
+*.log
+
+# Temp / test files
+session.html
+test_*.py
+_syntax_check.py
+check_*.py
+migrate_*.py
+*.html
+*.sql
+*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.pkl
+*.pickle

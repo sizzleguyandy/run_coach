@@ -1,0 +1,65 @@
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, ForeignKey
+from datetime import datetime
+from coach_core.database import Base
+
+
+class Athlete(Base):
+    __tablename__ = "athletes"
+
+    id = Column(Integer, primary_key=True)
+    telegram_id = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=False)
+
+    # Plan type: "full" (phase-based) or "c25k" (beginner program)
+    plan_type = Column(String, nullable=False, default="full")
+
+    # Full plan fields (nullable for c25k athletes until graduation)
+    current_weekly_mileage = Column(Float, nullable=True)
+    vdot = Column(Float, nullable=True)
+    race_distance = Column(String, nullable=True)          # "5k","10k","half","marathon","ultra"
+    race_hilliness = Column(String, nullable=False, default="low")
+    race_date = Column(Date, nullable=True)
+    start_date = Column(Date, nullable=False)
+
+    # C25K fields
+    c25k_week = Column(Integer, nullable=True)             # current week (1–12), null for full plans
+    c25k_completed = Column(Boolean, nullable=False, default=False)
+
+    # Location for TRUEPACE weather adjustment
+    latitude  = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    run_hour  = Column(Integer, nullable=True, default=7)  # preferred run start hour (0-23)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RunLog(Base):
+    __tablename__ = "run_logs"
+
+    id = Column(Integer, primary_key=True)
+    athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False)
+    week_number = Column(Integer, nullable=False)
+    day_name = Column(String, nullable=False)
+    planned_distance_km = Column(Float, nullable=True)
+    actual_distance_km = Column(Float, nullable=False)
+    duration_minutes = Column(Float, nullable=True)
+    rpe = Column(Integer, nullable=True)  # 1–10
+    notes = Column(String, nullable=True)
+    logged_at = Column(DateTime, default=datetime.utcnow)
+
+
+class VDOTHistory(Base):
+    __tablename__ = "vdot_history"
+
+    id = Column(Integer, primary_key=True)
+    athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False)
+    vdot = Column(Float, nullable=False)
+    source = Column(String, nullable=True)  # "initial", "race", "time_trial", "adjusted", "c25k_graduation"
+    effective_date = Column(Date, nullable=False)
+    # Location for TRUEPACE weather adjustment
+    latitude  = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    run_hour  = Column(Integer, nullable=True, default=7)  # preferred run start hour (0-23)
+
+    created_at = Column(DateTime, default=datetime.utcnow)

@@ -1,0 +1,324 @@
+"""
+UI handler — inline button callbacks and primary views.
+
+All three main views (Today / Plan / Dashboard) live here so they can be
+triggered both from commands and from inline button callbacks without duplication.
+
+Callback data map:
+  menu       → show main menu
+  today      → today's run
+  plan       → this week's plan
+  dashboard  → dashboard snapshot
+  log        → redirect to /log command flow
+  paces      → training paces
+  settings   → location and run hour settings
+"""
+from __future__ import annotations
+
+import asyncio
+from datetime import date
+
+import httpx
+from telegram import Update
+from telegram.ext import ContextTypes
+
+from telegram_bot.config import API_BASE_URL
+from telegram_bot.formatting import (
+    format_main_menu, format_today, format_week, format_c25k_week,
+    format_dashboard, format_paces, format_truepace,
+    main_menu_keyboard, today_keyboard, plan_keyboard,
+    dashboard_keyboard, back_keyboard,
+    WEEKDAY_TO_DAY,
+)
+
+
+# ── Shared data fetchers ───────────────────────────────────────────────────
+
+async def _fetch_all(telegram_id: str) -> tuple[dict | None, dict | None, dict | None]:
+    """
+    Fetch athlete, current week plan, and week log summary in parallel.
+    Returns (athlete, week, summary) — any may be None on error.
+    """
+    async with httpx.AsyncClient(timeout=12) as client:
+        results = await asyncio.gather(
+            client.get(f"{API_BASE_URL}/athlete/{telegram_id}"),
+            client.get(f"{API_BASE_URL}/plan/{telegram_id}/current"),
+            return_exceptions=True,
+        )
+
+    athlete_r, week_r = results
+    athlete = week_r_data = None
+
+    if not isinstance(athlete_r, Exception) and athlete_r.status_code == 200:
+        athlete = athlete_r.json()
+    if not isinstance(week_r, Exception) and week_r.status_code == 200:
+        week_r_data = week_r.json()
+
+    # Fetch log summary (needs week number from week plan)
+    summary = None
+    if athlete and week_r_data:
+        week_num = week_r_data.get("week_number", 1)
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                sr = await client.get(
+                    f"{API_BASE_URL}/log/{telegram_id}/week/{week_num}/summary"
+                )
+                if sr.status_code == 200:
+                    summary = sr.json()
+        except Exception:
+            pass
+
+    return athlete, week_r_data, summary or {}
+
+
+async def _fetch_weather(telegram_id: str, session_type: str = "easy") -> dict:
+    """Fetch TRUEPACE adjustment. Returns empty dict on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=6) as client:
+            r = await client.get(
+                f"{API_BASE_URL}/weather/{telegram_id}/adjustment",
+                params={"session_type": session_type},
+            )
+            if r.status_code == 200:
+                return r.json()
+    except Exception:
+        pass
+    return {}
+
+
+def _session_type_for_week(week: dict) -> str:
+    phase = week.get("phase", 1)
+    today_key = WEEKDAY_TO_DAY.get(date.today().weekday(), "Mon")
+    session_name = week.get("days", {}).get(today_key, {}).get("session", "")
+    if any(kw in session_name for kw in ("Interval", "Cruise", "Threshold", "R-Pace", "Hill")):
+        return "quality"
+    if "Long" in session_name:
+        return "long"
+    return "easy"
+
+
+def _today_logged(summary: dict) -> bool:
+    today_key = WEEKDAY_TO_DAY.get(date.today().weekday(), "Mon")
+    runs = summary.get("runs", [])
+    return any(r.get("day") == today_key for r in runs)
+
+
+def _no_profile_text() -> str:
+    return "No profile found. Use /start to set up your training plan."
+
+
+# ── Show main menu ─────────────────────────────────────────────────────────
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
+    """
+    Send or edit-in-place the main menu message.
+    `edit=True` is used when responding to a callback to update the existing message.
+    """
+    telegram_id = str(update.effective_user.id)
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
+            if r.status_code != 200:
+                text = _no_profile_text()
+                if edit and update.callback_query:
+                    await update.callback_query.edit_message_text(text)
+                else:
+                    await update.effective_message.reply_text(text)
+                return
+            athlete = r.json()
+    except Exception:
+        text = "⚠️ Could not reach the server. Try again shortly."
+        if edit and update.callback_query:
+            await update.callback_query.edit_message_text(text)
+        else:
+            await update.effective_message.reply_text(text)
+        return
+
+    text = format_main_menu(athlete.get("name", ""), athlete.get("plan_type", "full"))
+    keyboard = main_menu_keyboard()
+
+    if edit and update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    else:
+        await update.effective_message.reply_text(text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+# ── Today's run ────────────────────────────────────────────────────────────
+
+async def show_today(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
+    telegram_id = str(update.effective_user.id)
+    athlete, week, summary = await _fetch_all(telegram_id)
+
+    if not week:
+        text = _no_profile_text() if not athlete else "⚠️ Could not load your plan."
+        _send_or_edit(update, text, back_keyboard(), edit)
+        return
+
+    logged_today = _today_logged(summary)
+    text = format_today(week, logged_today)
+
+    # Append TRUEPACE block
+    if athlete and week.get("plan_type") != "c25k":
+        session_type = _session_type_for_week(week)
+        weather = await _fetch_weather(telegram_id, session_type)
+        truepace = format_truepace(weather)
+        if truepace:
+            text = text + "\n\n" + truepace
+
+    keyboard = today_keyboard(logged_today)
+    await _send_or_edit(update, text, keyboard, edit)
+
+
+# ── Weekly plan ────────────────────────────────────────────────────────────
+
+async def show_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
+    telegram_id = str(update.effective_user.id)
+
+    try:
+        async with httpx.AsyncClient(timeout=12) as client:
+            r = await client.get(f"{API_BASE_URL}/plan/{telegram_id}/current")
+            if r.status_code == 404:
+                await _send_or_edit(update, _no_profile_text(), back_keyboard(), edit)
+                return
+            r.raise_for_status()
+            week = r.json()
+    except Exception as e:
+        await _send_or_edit(update, f"⚠️ Could not load plan: {e}", back_keyboard(), edit)
+        return
+
+    plan_type = week.get("plan_type", "full")
+    text = format_c25k_week(week) if plan_type == "c25k" else format_week(week)
+    await _send_or_edit(update, text, plan_keyboard(), edit)
+
+
+# ── Dashboard ──────────────────────────────────────────────────────────────
+
+async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
+    telegram_id = str(update.effective_user.id)
+    athlete, week, summary = await _fetch_all(telegram_id)
+
+    if not athlete:
+        await _send_or_edit(update, _no_profile_text(), back_keyboard(), edit)
+        return
+
+    if not week:
+        await _send_or_edit(update, "⚠️ Could not load plan data.", back_keyboard(), edit)
+        return
+
+    text = format_dashboard(athlete, week, summary)
+    await _send_or_edit(update, text, dashboard_keyboard(), edit)
+
+
+# ── Paces ──────────────────────────────────────────────────────────────────
+
+async def show_paces(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
+    telegram_id = str(update.effective_user.id)
+
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            r = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}/paces")
+            if r.status_code == 404:
+                await _send_or_edit(update, _no_profile_text(), back_keyboard(), edit)
+                return
+            if r.status_code == 400:
+                await _send_or_edit(
+                    update,
+                    "No VDOT yet — complete C25K and log a time trial to unlock paces.",
+                    back_keyboard(), edit,
+                )
+                return
+            r.raise_for_status()
+            paces = r.json()
+    except Exception as e:
+        await _send_or_edit(update, f"⚠️ Could not load paces: {e}", back_keyboard(), edit)
+        return
+
+    # Also fetch TRUEPACE if available
+    weather = await _fetch_weather(telegram_id, "easy")
+    truepace = format_truepace(weather)
+    text = format_paces(paces)
+    if truepace:
+        text = text + "\n\n" + truepace
+
+    await _send_or_edit(update, text, back_keyboard(), edit, parse_mode="MarkdownV2")
+
+
+# ── Settings ───────────────────────────────────────────────────────────────
+
+async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    text = (
+        "⚙️ *Settings*\n\n"
+        "📍 *Location & TRUEPACE*\n"
+        "Use /location to set your city for weather-adjusted paces.\n"
+        "Example: `/location Cape Town` or `/location Cape Town 6` \\(6 AM runs\\)\n\n"
+        "🔄 *Reset profile*\n"
+        "Use /reset to delete your profile and start over\\."
+    )
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("← Menu", callback_data="menu"),
+    ]])
+    await _send_or_edit(update, text, keyboard, edit, parse_mode="MarkdownV2")
+
+
+# ── Callback dispatcher ────────────────────────────────────────────────────
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Route all inline button callbacks."""
+    query = update.callback_query
+    await query.answer()   # dismiss loading spinner
+
+    data = query.data
+
+    if data == "menu":
+        await show_main_menu(update, context, edit=True)
+    elif data == "today":
+        await show_today(update, context, edit=True)
+    elif data == "plan":
+        await show_plan(update, context, edit=True)
+    elif data == "dashboard":
+        await show_dashboard(update, context, edit=True)
+    elif data == "paces":
+        await show_paces(update, context, edit=True)
+    elif data == "settings":
+        await show_settings(update, context, edit=True)
+    elif data == "log":
+        # Cannot run a ConversationHandler from a callback — send a prompt instead
+        await query.answer("Use /log to record your run", show_alert=False)
+        await update.effective_message.reply_text(
+            "📝 Use /log to record today's run.",
+            reply_markup=back_keyboard(),
+        )
+
+
+# ── Command entry points (call into show_* functions) ─────────────────────
+
+async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await show_today(update, context, edit=False)
+
+
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await show_main_menu(update, context, edit=False)
+
+
+async def cmd_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await show_dashboard(update, context, edit=False)
+
+
+# ── Helper ─────────────────────────────────────────────────────────────────
+
+async def _send_or_edit(update, text: str, keyboard, edit: bool, parse_mode: str = "Markdown") -> None:
+    """Send new message or edit existing one depending on context."""
+    if edit and update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(
+                text, reply_markup=keyboard, parse_mode=parse_mode,
+            )
+        except Exception:
+            # Message may be unchanged — silently ignore
+            pass
+    else:
+        await update.effective_message.reply_text(
+            text, reply_markup=keyboard, parse_mode=parse_mode,
+        )

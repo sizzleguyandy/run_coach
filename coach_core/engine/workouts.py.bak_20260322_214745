@@ -1,0 +1,231 @@
+import math
+from coach_core.engine.paces import Paces, format_pace
+from coach_core.engine.phases import PhaseAllocation
+from coach_core.engine.hills import (
+    should_replace_with_hills,
+    week_number_in_phase,
+    get_hill_quality_session,
+    get_downhill_session,
+    get_hilly_long_run_note,
+)
+
+# distance_factor: 0=5k, 0=10k, 1=half, 2=marathon, 3=ultra
+DISTANCE_FACTOR: dict[str, int] = {
+    "5k": 0, "10k": 0, "half": 1, "marathon": 2, "ultra": 3,
+}
+
+
+def get_long_run_km(weekly_volume: float, race_distance: str) -> float:
+    """Long run = 25–35% of weekly volume (higher for longer races).
+    Marathon long run capped at 32 km per Daniels guidelines."""
+    df = DISTANCE_FACTOR.get(race_distance, 1)
+    pct = min(0.25 + 0.025 * df, 0.35)
+    if race_distance == "ultra":
+        pct = 0.30
+    long_run = weekly_volume * pct
+    if race_distance == "marathon":
+        long_run = min(long_run, 32.0)
+    return round(long_run, 1)
+
+
+def get_quality_session(
+    phase: int,
+    weekly_volume: float,
+    paces: Paces,
+    hilliness: str = "low",
+    week_in_phase: int = 1,
+) -> dict:
+    """
+    Tuesday quality session prescription for the given Daniels phase.
+    Quality volume = 20% of weekly volume. Rep count scaled accordingly.
+    If hilliness warrants it, delegates to the hill workout engine.
+    """
+    if should_replace_with_hills(phase, hilliness, week_in_phase):
+        return get_hill_quality_session(phase, hilliness, weekly_volume)
+
+    quality_km = weekly_volume * 0.20
+
+    if phase == 1:
+        reps = max(6, min(12, math.floor(quality_km / 0.5)))
+        return {
+            "type": "Strides / Hills",
+            "detail": f"{reps} × 100m strides @ R pace ({format_pace(paces.repetition_min_per_km)})",
+            "warmup_km": 2.0,
+            "cooldown_km": 2.0,
+            "quality_km": round(reps * 0.1, 1),
+            "total_km": round(reps * 0.1 + 4.0, 1),
+        }
+
+    if phase == 2:
+        reps = max(6, min(16, math.floor(quality_km / (0.2 * 1.5))))
+        return {
+            "type": "R-Pace 200s",
+            "detail": (
+                f"{reps} × 200m @ R pace ({format_pace(paces.repetition_min_per_km)}) "
+                "— full recovery (walk/jog 2–3 min)"
+            ),
+            "warmup_km": 2.0,
+            "cooldown_km": 1.0,
+            "quality_km": round(reps * 0.2, 1),
+            "total_km": round(reps * 0.2 + 3.0, 1),
+        }
+
+    if phase == 3:
+        reps = max(4, min(12, math.floor(quality_km / (0.8 * 1.5))))
+        return {
+            "type": "Intervals",
+            "detail": (
+                f"{reps} × 800m @ I pace ({format_pace(paces.interval_min_per_km)}) "
+                "— jog recovery equal to rep time"
+            ),
+            "warmup_km": 2.0,
+            "cooldown_km": 1.0,
+            "quality_km": round(reps * 0.8, 1),
+            "total_km": round(reps * 0.8 + 3.0, 1),
+        }
+
+    # phase == 4
+    reps = max(3, min(8, math.floor(quality_km / (1.6 * 1.2))))
+    return {
+        "type": "Cruise Intervals",
+        "detail": (
+            f"{reps} × 1600m @ T pace ({format_pace(paces.threshold_min_per_km)}) "
+            "— 1 min rest between"
+        ),
+        "warmup_km": 2.0,
+        "cooldown_km": 1.0,
+        "quality_km": round(reps * 1.6, 1),
+        "total_km": round(reps * 1.6 + 3.0, 1),
+    }
+
+
+def build_week_days(
+    week_number: int,
+    phase: int,
+    weekly_volume: float,
+    paces: Paces,
+    race_distance: str,
+    phases: PhaseAllocation,
+    hilliness: str = "low",
+) -> dict:
+    """
+    Build the 7-day session dict for a training week.
+    Keys: Mon Tue Wed Thu Fri Sat Sun
+    Each value: {session, km, notes}
+    """
+    is_race_week = week_number == phases.total_weeks
+
+    if is_race_week:
+        return {
+            "Mon": {"session": "Rest",         "km": 0,   "notes": "Full rest — race week"},
+            "Tue": {"session": "Easy + Strides","km": 3.0, "notes": "3 km easy + 4 × 100m strides to sharpen legs"},
+            "Wed": {"session": "Recovery",      "km": 4.0, "notes": "4 km very easy, conversational pace"},
+            "Thu": {"session": "Easy",          "km": 3.0, "notes": "3 km easy + 2 × 100m strides"},
+            "Fri": {"session": "Rest",          "km": 0,   "notes": "Rest or 15 min walk"},
+            "Sat": {"session": "🏁 RACE DAY",  "km": 0,   "notes": "Race day — execute your plan!"},
+            "Sun": {"session": "Rest",          "km": 0,   "notes": "Recovery — celebrate!"},
+        }
+
+    wip = week_number_in_phase(week_number, phases)
+    quality = get_quality_session(phase, weekly_volume, paces, hilliness, wip)
+    long_run_km = get_long_run_km(weekly_volume, race_distance)
+    medium_long_km = round(weekly_volume * 0.18, 1)
+    recovery_km = round(weekly_volume * 0.09, 1)
+
+    # Long run description — steady-state, fast-finish, or hilly terrain
+    long_run_notes = f"{long_run_km} km easy @ E pace ({format_pace(paces.easy_min_per_km)})"
+    if hilliness == "high" and phase in (3, 4):
+        # High hilliness: long run on hilly terrain (overrides pace-based notes)
+        long_run_notes = get_hilly_long_run_note(
+            long_run_km, format_pace(paces.marathon_min_per_km)
+        )
+    elif race_distance in ("marathon", "ultra") and phase == 3:
+        steady_km = min(16, round(long_run_km * 0.35, 1))
+        long_run_notes = (
+            f"{long_run_km} km — first {round(long_run_km - steady_km, 1)} km easy, "
+            f"last {steady_km} km @ M pace ({format_pace(paces.marathon_min_per_km)})"
+        )
+    elif race_distance in ("half", "marathon") and phase in (3, 4):
+        finish_km = 5 if race_distance == "half" else 8
+        long_run_notes = (
+            f"{long_run_km} km — last {finish_km} km @ goal pace "
+            f"({format_pace(paces.marathon_min_per_km)})"
+        )
+
+    days = {
+        "Mon": {
+            "session": "Rest",
+            "km": 0,
+            "notes": "Full rest",
+        },
+        "Tue": {
+            "session": quality["type"],
+            "km": quality["total_km"],
+            "notes": (
+                f"WU {quality['warmup_km']} km easy | "
+                f"{quality['detail']} | "
+                f"CD {quality['cooldown_km']} km easy"
+            ),
+        },
+        "Wed": {
+            "session": "Recovery Run",
+            "km": recovery_km,
+            "notes": f"{recovery_km} km very easy",
+        },
+        "Thu": {
+            "session": "Medium-Long Run",
+            "km": medium_long_km,
+            "notes": f"{medium_long_km} km easy",
+        },
+        "Fri": {
+            "session": "Recovery Run",
+            "km": recovery_km,
+            "notes": f"{recovery_km} km easy (or rest if fatigued)",
+        },
+        "Sat": {
+            "session": "Long Run",
+            "km": long_run_km,
+            "notes": long_run_notes,
+        },
+        "Sun": {
+            "session": "Cross-Train / Rest",
+            "km": 0,
+            "notes": "Cross-train (bike, swim) or full rest",
+        },
+    }
+
+    # Ultra: back-to-back Saturday/Sunday long runs
+    # Saturday = 30% of weekly volume (already set above via get_long_run_km which returns 30%)
+    # Sunday   = 20% of weekly volume
+    # Both capped at 40 km/day to limit excessive fatigue
+    if race_distance == "ultra" and phase in (2, 3):
+        ULTRA_DAY_CAP_KM = 40.0
+        sun_km = min(round(weekly_volume * 0.20, 1), ULTRA_DAY_CAP_KM)
+        # Also enforce cap on Saturday long run
+        if days["Sat"]["km"] > ULTRA_DAY_CAP_KM:
+            days["Sat"] = {
+                "session": "Long Run",
+                "km": ULTRA_DAY_CAP_KM,
+                "notes": (
+                    f"{ULTRA_DAY_CAP_KM} km easy @ E pace "
+                    f"(capped at {ULTRA_DAY_CAP_KM} km)"
+                ),
+            }
+        days["Sun"] = {
+            "session": "Back-to-Back Long Run",
+            "km": sun_km,
+            "notes": (
+                f"{sun_km} km easy @ E pace — "
+                "back-to-back with Saturday to build ultra fatigue resistance"
+            ),
+        }
+
+    # High hilliness: downhill repeats on alternating Fridays in Phase III and IV
+    if hilliness == "high" and phase in (3, 4):
+        is_taper = phase == 4
+        wip = week_number_in_phase(week_number, phases)
+        if wip % 2 == 0:   # every other week to allow adaptation
+            dl = get_downhill_session(weekly_volume, is_taper=is_taper)
+            days["Fri"] = dl
+
+    return days
