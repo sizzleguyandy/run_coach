@@ -75,13 +75,20 @@ BEGINNER_5K_TIMES: dict[str, float] = {
 # Derived from spec Section 2.1 + existing race_presets.py data.
 
 PRESET_HILL_FACTORS: dict[str, float] = {
-    "comrades":              0.18,   # average of up (0.22) and down (0.14)
-    "two_oceans":            0.125,
-    "capetown_marathon":     0.05,
-    "soweto_marathon":       0.07,
-    "om_die_dam":            0.10,
-    "durban_city_marathon":  0.07,
-    "parkrun":               0.02,
+    # SA races
+    "comrades_marathon":             0.18,   # average of up (0.22) and down (0.14)
+    "two_oceans_marathon":           0.10,   # 747m gain — medium (revised down from 1100m)
+    "cape_town_marathon":            0.05,
+    "soweto_marathon":               0.07,
+    "durban_international_marathon": 0.02,   # 30m gain — very flat
+    "knysna_forest_marathon":        0.10,   # 700m trail gain — trail penalty applied elsewhere
+    # UK races
+    "london_marathon":               0.02,   # 127m — essentially flat
+    "manchester_marathon":           0.01,   # 54m — flattest in UK
+    "brighton_marathon":             0.03,
+    "edinburgh_marathon":            0.01,   # 38m net downhill
+    "yorkshire_marathon":            0.03,
+    "loch_ness_marathon":            0.06,   # 349m rolling Highland terrain
 }
 
 

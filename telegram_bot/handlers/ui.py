@@ -35,14 +35,16 @@ _log = logging.getLogger(__name__)
 LOGOS_BASE = "https://sizzleguyandy.github.io/run-coach-apps/logos"
 
 RACE_LOGO_MAP: dict[str, str] = {
-    # Logos confirmed in GitHub repo — add others here as you upload them
-    "capetown_marathon":    f"{LOGOS_BASE}/logo_cape_town_marathon.jpg",
-    "two_oceans":           f"{LOGOS_BASE}/logo_two_oceans.jpg",
-    "comrades":             f"{LOGOS_BASE}/logo_comrades.jpg",
-    # "soweto_marathon":    f"{LOGOS_BASE}/logo_soweto_marathon.jpg",   # add when uploaded
-    # "om_die_dam":         f"{LOGOS_BASE}/logo_om_die_dam.jpg",        # add when uploaded
-    # "durban_city_marathon": f"{LOGOS_BASE}/logo_durban_city.jpg",     # add when uploaded
-    # "parkrun":            f"{LOGOS_BASE}/logo_parkrun.jpg",           # add when uploaded
+    # SA logos confirmed in GitHub repo
+    "cape_town_marathon":            f"{LOGOS_BASE}/logo_cape_town_marathon.jpg",
+    "two_oceans_marathon":           f"{LOGOS_BASE}/logo_two_oceans.jpg",
+    "comrades_marathon":             f"{LOGOS_BASE}/logo_comrades.jpg",
+    # "soweto_marathon":             f"{LOGOS_BASE}/logo_soweto_marathon.jpg",          # add when uploaded
+    # "durban_international_marathon": f"{LOGOS_BASE}/logo_durban_international.jpg",   # add when uploaded
+    # "knysna_forest_marathon":      f"{LOGOS_BASE}/logo_knysna_forest.jpg",            # add when uploaded
+    # UK logos (add as uploaded)
+    # "london_marathon":             f"{LOGOS_BASE}/logo_london_marathon.jpg",
+    # "manchester_marathon":         f"{LOGOS_BASE}/logo_manchester_marathon.jpg",
 }
 _GENERIC_LOGO = f"{LOGOS_BASE}/logo_generic.jpg"
 

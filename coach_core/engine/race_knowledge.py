@@ -30,26 +30,40 @@ from typing import Optional
 _KNOWLEDGE_DIR = Path(__file__).parent / "race_knowledge"
 
 
-# ── Mapping: preset_race_id → filename stem ───────────────────────────────────
+# ── Mapping: preset_race_id → (country_subdir, filename_stem) ────────────────
 
-RACE_FILE_MAP: dict[str, str] = {
-    "comrades":             "comrades",
-    "two_oceans":           "two_oceans",
-    "capetown_marathon":    "capetown_marathon",
-    "soweto_marathon":      "soweto_marathon",
-    "om_die_dam":           "om_die_dam",
-    "durban_city_marathon": "durban_city_marathon",
-    "parkrun":              "parkrun",
+RACE_FILE_MAP: dict[str, tuple[str, str]] = {
+    # SA races
+    "comrades_marathon":             ("sa", "comrades_marathon"),
+    "two_oceans_marathon":           ("sa", "two_oceans_marathon"),
+    "cape_town_marathon":            ("sa", "cape_town_marathon"),
+    "soweto_marathon":               ("sa", "soweto_marathon"),
+    "durban_international_marathon": ("sa", "durban_international_marathon"),
+    "knysna_forest_marathon":        ("sa", "knysna_forest_marathon"),
+    # UK races
+    "london_marathon":               ("uk", "london_marathon"),
+    "manchester_marathon":           ("uk", "manchester_marathon"),
+    "brighton_marathon":             ("uk", "brighton_marathon"),
+    "edinburgh_marathon":            ("uk", "edinburgh_marathon"),
+    "yorkshire_marathon":            ("uk", "yorkshire_marathon"),
+    "loch_ness_marathon":            ("uk", "loch_ness_marathon"),
 }
 
 RACE_DISPLAY_NAMES: dict[str, str] = {
-    "comrades":             "Comrades Marathon",
-    "two_oceans":           "Two Oceans Ultra Marathon",
-    "capetown_marathon":    "Cape Town Marathon",
-    "soweto_marathon":      "Soweto Marathon",
-    "om_die_dam":           "Om Die Dam Ultra Marathon",
-    "durban_city_marathon": "Durban City Marathon",
-    "parkrun":              "parkrun (5K)",
+    # SA races
+    "comrades_marathon":             "Comrades Marathon",
+    "two_oceans_marathon":           "Two Oceans Marathon",
+    "cape_town_marathon":            "Sanlam Cape Town Marathon",
+    "soweto_marathon":               "African Bank Soweto Marathon",
+    "durban_international_marathon": "Durban International Marathon",
+    "knysna_forest_marathon":        "Knysna Forest Marathon",
+    # UK races
+    "london_marathon":               "TCS London Marathon",
+    "manchester_marathon":           "adidas Manchester Marathon",
+    "brighton_marathon":             "Brighton Marathon",
+    "edinburgh_marathon":            "Edinburgh Marathon",
+    "yorkshire_marathon":            "Yorkshire Marathon",
+    "loch_ness_marathon":            "Baxters Loch Ness Marathon",
 }
 
 
@@ -59,11 +73,13 @@ def load_race_knowledge(preset_race_id: str) -> Optional[str]:
     """
     Return the full markdown text for a race knowledge file.
     Returns None if no file exists for this race ID.
+    Files live in race_knowledge/{country}/{stem}.md
     """
-    stem = RACE_FILE_MAP.get(preset_race_id)
-    if not stem:
+    entry = RACE_FILE_MAP.get(preset_race_id)
+    if not entry:
         return None
-    path = _KNOWLEDGE_DIR / f"{stem}.md"
+    country, stem = entry
+    path = _KNOWLEDGE_DIR / country / f"{stem}.md"
     if not path.exists():
         return None
     return path.read_text(encoding="utf-8")
@@ -358,6 +374,166 @@ def _om_die_dam_pacing(vdot: float) -> str:
     return "\n".join(lines)
 
 
+# ── Durban International Marathon pacing ─────────────────────────────────────
+
+def _durban_pacing(vdot: float) -> str:
+    marathon_min = _vdot_to_marathon_minutes(vdot)
+    pace = marathon_min / 42.195
+    lines = [
+        "**Durban International Marathon Personalised Pacing**",
+        f"Predicted finish: **{_fmt_hm(marathon_min)}**  |  Goal pace: **{_fmt_pace_sa(pace)}**",
+        "",
+        "Durban is one of the flattest marathons in the world \u2014 just 30m elevation gain. "
+        "This is a PB course. Run even or negative splits. Aim for the same pace from km 1 to km 42.",
+        "",
+        f"Heat and humidity are the primary risks. If race-day temperature exceeds 22\u00b0C, "
+        f"add 15\u201330 seconds per km to your goal pace. Do not skip aid stations.",
+    ]
+    return "\n".join(lines)
+
+
+# ── Knysna Forest Marathon pacing ─────────────────────────────────────────────
+
+def _knysna_pacing(vdot: float) -> str:
+    marathon_min = _vdot_to_marathon_minutes(vdot)
+    # Trail factor: 700m gain, technical terrain — roughly 20% slower than road
+    predicted_min = marathon_min * 1.22
+    lines = [
+        "**Knysna Forest Marathon Personalised Pacing**",
+        f"Road marathon prediction: **{_fmt_hm(marathon_min)}**",
+        f"Trail-adjusted target: **{_fmt_hm(predicted_min)}** "
+        "(700m gain on technical forest terrain)",
+        "",
+        "Pacing by time is largely irrelevant in Knysna \u2014 run by effort. "
+        "Power-hike the steep climbs aggressively; recover on the descents with a controlled short stride.",
+        f"If your road marathon time is over 4:30, budget for approximately "
+        f"**{_fmt_hm(predicted_min)}** to **{_fmt_hm(predicted_min * 1.08)}** on race day.",
+    ]
+    return "\n".join(lines)
+
+
+def _fmt_pace_sa(min_per_km: float) -> str:
+    m = int(min_per_km)
+    s = int(round((min_per_km - m) * 60))
+    return f"{m}:{s:02d}/km"
+
+
+# ── UK pacing guides ─────────────────────────────────────────────────────────
+
+def _fmt_pace(min_per_km: float) -> str:
+    m = int(min_per_km)
+    s = int(round((min_per_km - m) * 60))
+    return f"{m}:{s:02d}/km"
+
+
+def _london_pacing(vdot: float) -> str:
+    marathon_min = _vdot_to_marathon_minutes(vdot)
+    pace = marathon_min / 42.195
+    lines = [
+        "**London Marathon Personalised Pacing**",
+        f"Predicted finish: **{_fmt_hm(marathon_min)}**  |  Goal pace: **{_fmt_pace(pace)}**",
+        "",
+        "| Segment | Target Pace | Notes |",
+        "|---|---|---|",
+        f"| Blackheath start (0\u20135 km) | {_fmt_pace(pace * 1.03)} | Congested. Stay patient, don\u2019t surge. |",
+        f"| Through Bermondsey (5\u201315 km) | {_fmt_pace(pace)} | Goal pace. Long flat stretch \u2014 bank rhythm not time. |",
+        f"| Tower Bridge & Isle of Dogs (15\u201330 km) | {_fmt_pace(pace)} | The iconic section. Focus on form. |",
+        f"| Victoria Embankment (30\u201338 km) | {_fmt_pace(pace * 1.01)} | Hardest miles. Effort-match, not pace-match. |",
+        f"| The Mall finish (38\u201342 km) | {_fmt_pace(pace * 0.98)} | Empty the tank \u2014 Buckingham Palace is the reward. |",
+    ]
+    return "\n".join(lines)
+
+
+def _manchester_pacing(vdot: float) -> str:
+    marathon_min = _vdot_to_marathon_minutes(vdot)
+    pace = marathon_min / 42.195
+    lines = [
+        "**Manchester Marathon Personalised Pacing**",
+        f"Predicted finish: **{_fmt_hm(marathon_min)}**  |  Goal pace: **{_fmt_pace(pace)}**",
+        "",
+        "Manchester is the UK's fastest marathon \u2014 flat loop, ideal for a PB.",
+        f"Aim for even splits throughout at **{_fmt_pace(pace)}**. "
+        "The course has minimal elevation change so there is no reason to bank time early.",
+        "",
+        f"Watch for the notorious headwind between km 28\u201334 along the A56. "
+        "Tuck in behind other runners and do not force the pace.",
+    ]
+    return "\n".join(lines)
+
+
+def _brighton_pacing(vdot: float) -> str:
+    marathon_min = _vdot_to_marathon_minutes(vdot)
+    pace = marathon_min / 42.195
+    lines = [
+        "**Brighton Marathon Personalised Pacing**",
+        f"Predicted finish: **{_fmt_hm(marathon_min)}**  |  Goal pace: **{_fmt_pace(pace)}**",
+        "",
+        "| Segment | Target Pace | Notes |",
+        "|---|---|---|",
+        f"| Preston Park (0\u20138 km) | {_fmt_pace(pace * 1.02)} | Rolling start. Don\u2019t go out too fast with the crowd. |",
+        f"| Seafront out-and-back (8\u201330 km) | {_fmt_pace(pace)} | Exposed to wind \u2014 be prepared for either direction. |",
+        f"| Final loop back to Preston Park (30\u201342 km) | {_fmt_pace(pace * 0.99)} | Crowd support picks up here \u2014 use it. |",
+    ]
+    return "\n".join(lines)
+
+
+def _edinburgh_pacing(vdot: float) -> str:
+    marathon_min = _vdot_to_marathon_minutes(vdot)
+    # Edinburgh has 240m elevation — slight adjustment
+    adjusted_min = marathon_min * 1.02
+    pace = adjusted_min / 42.195
+    lines = [
+        "**Edinburgh Marathon Personalised Pacing**",
+        f"Predicted finish: **{_fmt_hm(adjusted_min)}** (adjusted for 240m elevation)",
+        f"Goal pace: **{_fmt_pace(pace)}**",
+        "",
+        "Edinburgh runs point-to-point east from the city to East Lothian. "
+        "The first 5 km is slightly undulating through the city; from km 8 the course "
+        "is fast and mostly downhill to the coast.",
+        f"Conservative target: start at **{_fmt_pace(pace * 1.03)}** for the first 8 km, "
+        f"then settle to **{_fmt_pace(pace)}** once you hit the coastal flats.",
+    ]
+    return "\n".join(lines)
+
+
+def _loch_ness_pacing(vdot: float) -> str:
+    marathon_min = _vdot_to_marathon_minutes(vdot)
+    # Loch Ness: 349m gain, net downhill but rolling — ~3% effort penalty
+    adjusted_min = marathon_min * 1.03
+    pace = adjusted_min / 42.195
+    lines = [
+        "**Loch Ness Marathon Personalised Pacing**",
+        f"Predicted finish: **{_fmt_hm(adjusted_min)}** (adjusted for 349m rolling Highland terrain)",
+        f"Effort-based goal pace: **{_fmt_pace(pace)}**",
+        "",
+        "Loch Ness is a net-downhill point-to-point from Fort Augustus to Inverness. "
+        "Do NOT run the downhills fast \u2014 quad-busting descents after km 20 will destroy your finish.",
+        "",
+        f"Run the first 18 km (hilly) at **{_fmt_pace(pace * 1.04)}** by effort. "
+        f"The final 24 km to Inverness open up \u2014 aim for **{_fmt_pace(pace * 0.98)}** if legs allow.",
+    ]
+    return "\n".join(lines)
+
+
+def _yorkshire_pacing(vdot: float) -> str:
+    marathon_min = _vdot_to_marathon_minutes(vdot)
+    pace = marathon_min / 42.195
+    lines = [
+        "**Yorkshire Marathon Personalised Pacing**",
+        f"Predicted finish: **{_fmt_hm(marathon_min)}**  |  Goal pace: **{_fmt_pace(pace)}**",
+        "",
+        "Yorkshire is a flat, PB-friendly course through York city and the Vale of York. "
+        "Total elevation gain is just 157m with no significant climbs.",
+        f"Aim for even splits at **{_fmt_pace(pace)}** throughout. "
+        "The exposed Vale of York sections can carry a cross-wind \u2014 "
+        "tuck in behind other runners if wind is strong.",
+        "",
+        "October weather in York averages 10\u201315\u00b0C \u2014 ideal conditions. "
+        "Be prepared for rain and pack a throwaway layer for the start.",
+    ]
+    return "\n".join(lines)
+
+
 # ── Main public API ───────────────────────────────────────────────────────────
 
 def get_race_context(
@@ -377,16 +553,32 @@ def get_race_context(
 
     if vdot and vdot > 0 and preset_race_id:
         try:
-            if preset_race_id == "comrades":
+            # SA races
+            if preset_race_id == "comrades_marathon":
                 checkpoint_summary = _comrades_checkpoints(vdot, race_date_str)
-            elif preset_race_id == "two_oceans":
+            elif preset_race_id == "two_oceans_marathon":
                 checkpoint_summary = _two_oceans_checkpoints(vdot)
-            elif preset_race_id == "capetown_marathon":
+            elif preset_race_id == "cape_town_marathon":
                 checkpoint_summary = _capetown_pacing(vdot)
             elif preset_race_id == "soweto_marathon":
                 checkpoint_summary = _soweto_pacing(vdot)
-            elif preset_race_id == "om_die_dam":
-                checkpoint_summary = _om_die_dam_pacing(vdot)
+            elif preset_race_id == "durban_international_marathon":
+                checkpoint_summary = _durban_pacing(vdot)
+            elif preset_race_id == "knysna_forest_marathon":
+                checkpoint_summary = _knysna_pacing(vdot)
+            # UK races
+            elif preset_race_id == "london_marathon":
+                checkpoint_summary = _london_pacing(vdot)
+            elif preset_race_id == "manchester_marathon":
+                checkpoint_summary = _manchester_pacing(vdot)
+            elif preset_race_id == "brighton_marathon":
+                checkpoint_summary = _brighton_pacing(vdot)
+            elif preset_race_id == "edinburgh_marathon":
+                checkpoint_summary = _edinburgh_pacing(vdot)
+            elif preset_race_id == "yorkshire_marathon":
+                checkpoint_summary = _yorkshire_pacing(vdot)
+            elif preset_race_id == "loch_ness_marathon":
+                checkpoint_summary = _loch_ness_pacing(vdot)
         except Exception:
             checkpoint_summary = ""
 
