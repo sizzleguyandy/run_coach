@@ -37,6 +37,12 @@ from telegram_bot.formatting import format_main_menu, main_menu_keyboard, _DIV
 from coach_core.engine.race_presets import (
     RACE_PRESETS, preset_keyboard_rows, find_preset_by_label, get_next_race_date,
 )
+from coach_core.engine.race_presets_sa import (
+    RACE_PRESETS_SA, RACE_COORDS_SA, get_next_race_date_sa,
+)
+from coach_core.engine.race_presets_uk import (
+    RACE_PRESETS_UK, RACE_COORDS_UK, get_next_race_date_uk,
+)
 from coach_core.engine.sa_cities import city_keyboard_rows, find_city
 from coach_core.engine.predictor import (
     predict, PredictionInput,
@@ -47,27 +53,57 @@ from coach_core.engine.adaptation import calculate_vdot_from_race
 
 # ── Conversation states ────────────────────────────────────────────────────
 (
-    NAME,             # 0
-    RACE_SELECT,      # 1
-    CUSTOM_DIST,      # 2
-    CUSTOM_HILLS,     # 3
-    CUSTOM_DATE,      # 4
-    EXPERIENCE,       # 5
-    RECENT_DIST,      # 6
-    RECENT_TIME,      # 7
-    BEGINNER_ABILITY, # 8
-    WEEKLY_KM,        # 9
-    LONGEST_RUN,      # 10
-    PLAN_TYPE,        # 11
-    LOCATION,         # 12
-    VDOT_INPUT,       # 13
-    LONG_RUN_DAY,     # 14
-    QUALITY_DAY,      # 15
-    EASY_DAYS,        # 16  — first easy day button selection
-    EASY_DAY_2,       # 17  — second easy day button selection
-    ANCHOR_QUESTION,  # 18  — do you run with a club/group?
-    ANCHOR_KM,        # 19  — how far is the group run?
-) = range(20)
+    COUNTRY,          # 0  — 🇿🇦 South Africa | 🇬🇧 United Kingdom
+    NAME,             # 1
+    RACE_SELECT,      # 2
+    CUSTOM_DIST,      # 3
+    CUSTOM_HILLS,     # 4
+    CUSTOM_DATE,      # 5
+    EXPERIENCE,       # 6
+    RECENT_DIST,      # 7
+    RECENT_TIME,      # 8
+    BEGINNER_ABILITY, # 9
+    WEEKLY_KM,        # 10
+    LONGEST_RUN,      # 11
+    PLAN_TYPE,        # 12
+    LOCATION,         # 13
+    VDOT_INPUT,       # 14
+    LONG_RUN_DAY,     # 15
+    QUALITY_DAY,      # 16
+    EASY_DAYS,        # 17  — first easy day button selection
+    EASY_DAY_2,       # 18  — second easy day button selection
+    ANCHOR_QUESTION,  # 19  — do you run with a club/group?
+    ANCHOR_KM,        # 20  — how far is the group run?
+) = range(21)
+
+# ── Country helpers ────────────────────────────────────────────────────────
+
+COUNTRY_OPTIONS = {
+    "🇿🇦 South Africa": "sa",
+    "🇬🇧 United Kingdom": "uk",
+}
+
+def _country_presets(country: str) -> dict:
+    return RACE_PRESETS_UK if country == "uk" else RACE_PRESETS_SA
+
+def _country_keyboard_rows(country: str) -> list[list[str]]:
+    presets = _country_presets(country)
+    labels = [p["display_name"] for p in presets.values()]
+    rows = [labels[i:i+2] for i in range(0, len(labels), 2)]
+    rows.append(["Other race — I will enter details"])
+    return rows
+
+def _find_preset_by_label_country(text: str, country: str):
+    presets = _country_presets(country)
+    for pid, p in presets.items():
+        if p["display_name"].lower() == text.lower():
+            return pid
+    return None
+
+def _get_next_race_date_country(preset_id: str, country: str) -> str:
+    if country == "uk":
+        return get_next_race_date_uk(preset_id)
+    return get_next_race_date_sa(preset_id)
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -288,20 +324,44 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         f"{_DIV}\n\n"
         "<b>Let's start with your name.</b>"
     )
+    country_rows = [[k] for k in COUNTRY_OPTIONS.keys()]
     try:
         await update.effective_message.reply_photo(
             photo=_TR3D_LOGO,
             caption=_welcome_caption,
-            reply_markup=ReplyKeyboardRemove(),
+            reply_markup=ReplyKeyboardMarkup(country_rows, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML",
         )
     except Exception:
-        # Logo unavailable — fall back to plain text so onboarding never breaks
         await update.effective_message.reply_text(
             _welcome_caption,
-            reply_markup=ReplyKeyboardRemove(),
+            reply_markup=ReplyKeyboardMarkup(country_rows, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML",
         )
+    return COUNTRY
+
+
+# ── Step 0: Country ────────────────────────────────────────────────────────
+
+async def get_country(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    text = update.effective_message.text.strip()
+    country = COUNTRY_OPTIONS.get(text)
+    if not country:
+        rows = [[k] for k in COUNTRY_OPTIONS.keys()]
+        await update.effective_message.reply_text(
+            "Please select your country using the buttons below.",
+            reply_markup=ReplyKeyboardMarkup(rows, one_time_keyboard=True, resize_keyboard=True),
+        )
+        return COUNTRY
+
+    _ud(context)["v2_country"] = country
+    flag = "🇿🇦" if country == "sa" else "🇬🇧"
+    await update.effective_message.reply_text(
+        f"{flag} Got it — loading <b>{'South Africa' if country == 'sa' else 'United Kingdom'}</b> races.\n\n"
+        "<b>What's your first name?</b>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode="HTML",
+    )
     return NAME
 
 
@@ -317,11 +377,13 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     _ud(context)["v2_name"] = name
 
-    rows = preset_keyboard_rows()
+    country = _ud(context).get("v2_country", "sa")
+    rows = _country_keyboard_rows(country)
+    country_label = "United Kingdom" if country == "uk" else "South Africa"
     await update.effective_message.reply_text(
         _step(2, "Your target race")
         + f"Great, <b>{_e(name)}</b>! Which race are you training for?\n\n"
-        "Select a famous South African race, or choose <b>Other race</b> to enter a custom one.",
+        f"Select a race from <b>{country_label}</b>, or choose <b>Other race</b> to enter a custom one.",
         reply_markup=ReplyKeyboardMarkup(rows, one_time_keyboard=True, resize_keyboard=True),
         parse_mode="HTML",
     )
@@ -349,19 +411,21 @@ async def get_race(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return CUSTOM_DIST
 
-    # Try to match a preset
-    preset_id = find_preset_by_label(text)
+    # Try to match a preset using the user's country
+    country = ud.get("v2_country", "sa")
+    preset_id = _find_preset_by_label_country(text, country)
     if not preset_id:
-        rows = preset_keyboard_rows()
+        rows = _country_keyboard_rows(country)
         await update.effective_message.reply_text(
             "Please choose a race from the buttons below.",
             reply_markup=ReplyKeyboardMarkup(rows, one_time_keyboard=True, resize_keyboard=True),
         )
         return RACE_SELECT
 
-    preset = RACE_PRESETS[preset_id]
+    presets = _country_presets(country)
+    preset = presets[preset_id]
     hill_factor = PRESET_HILL_FACTORS.get(preset_id, 0.05)
-    race_date_str = get_next_race_date(preset_id)
+    race_date_str = _get_next_race_date_country(preset_id, country)
     race_date = date.fromisoformat(race_date_str)
 
     ud["v2_preset_id"]        = preset_id

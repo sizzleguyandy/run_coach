@@ -21,14 +21,14 @@ from telegram_bot.config import TELEGRAM_TOKEN
 # ── V2 onboarding (replaces old onboarding.py) ────────────────────────────
 from telegram_bot.handlers.onboarding_v2 import (
     cmd_start, handle_web_app_data, cmd_cancel, cmd_reset,
-    get_name, get_race, get_custom_dist, get_custom_hills, get_custom_date,
+    get_country, get_name, get_race, get_custom_dist, get_custom_hills, get_custom_date,
     get_vdot_input,
     get_experience, get_recent_dist, get_recent_time,
     get_beginner_ability, get_weekly_km, get_longest_run, get_plan_type,
     get_long_run_day, get_quality_day, get_easy_days, get_easy_day_2,
     get_anchor_question, get_anchor_km,
     get_location,
-    NAME, RACE_SELECT, CUSTOM_DIST, CUSTOM_HILLS, CUSTOM_DATE,
+    COUNTRY, NAME, RACE_SELECT, CUSTOM_DIST, CUSTOM_HILLS, CUSTOM_DATE,
     EXPERIENCE, RECENT_DIST, RECENT_TIME, BEGINNER_ABILITY,
     WEEKLY_KM, LONGEST_RUN, PLAN_TYPE, LOCATION, VDOT_INPUT,
     LONG_RUN_DAY, QUALITY_DAY, EASY_DAYS, EASY_DAY_2,
@@ -69,6 +69,7 @@ def build_application() -> Application:
     onboarding_conv = ConversationHandler(
         entry_points=[CommandHandler("start", cmd_start)],
         states={
+            COUNTRY:          [MessageHandler(TEXT, get_country)],
             NAME:             [MessageHandler(TEXT, get_name)],
             RACE_SELECT:      [MessageHandler(TEXT, get_race)],
             CUSTOM_DIST:      [MessageHandler(TEXT, get_custom_dist)],
