@@ -24,14 +24,14 @@ Telegram User
                      ▼
 ┌──────────────────────────────────────────────────────┐
 │         FASTAPI ENGINE  (coach_core/)               │
-│  Handles: all business logic, VDOT, plans, logs    │
+│  Handles: all business logic, VO2X, plans, logs    │
 │  Pure engine modules: no I/O, deterministic         │
 └────────────────────┬─────────────────────────────────┘
                      │ async SQLAlchemy
                      ▼
 ┌──────────────────────────────────────────────────────┐
 │              SQLITE  (coach.db)                     │
-│  athletes, run_logs, vdot_history                   │
+│  athletes, run_logs, vo2x_history                   │
 └──────────────────────────────────────────────────────┘
                      │
      ┌───────────────┼────────────────┐
@@ -58,17 +58,17 @@ run_coach/
 ├── coach_core/
 │   ├── main.py                    # FastAPI app entry point, CORS, scheduler start
 │   ├── database.py                # async SQLAlchemy engine + session factory
-│   ├── models.py                  # SQLAlchemy ORM models (athletes, run_logs, vdot_history)
+│   ├── models.py                  # SQLAlchemy ORM models (athletes, run_logs, vo2x_history)
 │   │
 │   ├── engine/                    # Pure business logic — no I/O, no database
 │   │   ├── phases.py              # Phase allocation (I/II/III/IV) over N weeks
 │   │   ├── volume.py              # Weekly volume curve + taper calculation
-│   │   ├── paces.py               # VDOT → pace table (Daniels formula, interpolated)
+│   │   ├── paces.py               # VO2X → pace table (Daniels formula, interpolated)
 │   │   ├── workouts.py            # 7-day session builder, dynamic run-day count
 │   │   ├── workout_templates.py   # Daniels variety rotation per phase
 │   │   ├── plan_builder.py        # Full plan assembly from all engine modules
 │   │   ├── hills.py               # Hill workout substitution logic
-│   │   ├── adaptation.py          # Closed-loop weekly adaptation (volume + VDOT nudge)
+│   │   ├── adaptation.py          # Closed-loop weekly adaptation (volume + VO2X nudge)
 │   │   ├── c25k.py                # Couch to 5K programme + graduation
 │   │   ├── truepace.py            # Open-Meteo weather fetch + pace adjustment
 │   │   ├── sa_cities.py           # 30 SA cities, name/alias → lat/lon
@@ -104,7 +104,7 @@ run_coach/
 │       ├── training_days.py       # Change training days ConversationHandler (4 states)
 │       ├── reminder.py            # APScheduler: daily reminders, race prep milestones,
 │       │                           #   Sunday weekly game, weekly/monthly AI reports,
-│       │                           #   race eve briefings, VDOT level-up notifications
+│       │                           #   race eve briefings, VO2X level-up notifications
 │       └── __init__.py
 │
 └── tests/
@@ -123,7 +123,7 @@ run_coach/
 | `name` | String | |
 | `plan_type` | String | `"full"` or `"c25k"` |
 | `current_weekly_mileage` | Float | Current weekly volume in km |
-| `vdot` | Float NULL | Fitness index — NULL for C25K pre-graduation |
+| `vo2x` | Float NULL | Fitness index — NULL for C25K pre-graduation |
 | `race_distance` | String | `"5k"`, `"10k"`, `"half"`, `"marathon"`, `"ultra"` |
 | `race_hilliness` | String | `"low"`, `"medium"`, `"high"` |
 | `race_date` | Date | Target race date |
@@ -154,12 +154,12 @@ run_coach/
 | `rpe` | Integer NULL | Rate of perceived exertion 1-10 |
 | `notes` | String NULL | Free text |
 
-### `vdoti_history`
+### `vo2xi_history`
 | Column | Type | Notes |
 |---|---|---|
 | `id` | Integer PK | |
 | `athlete_id` | Integer FK | |
-| `vdot` | Float | |
+| `vo2x` | Float | |
 | `source` | String | `"initial"`, `"race"`, `"adjusted"`, `"c25k_graduation"` |
 | `effective_date` | Date | |
 
@@ -198,26 +198,26 @@ Rules:
 ```
 
 ### 4.3 `paces.py`
-VDOT → training pace table using Jack Daniels' velocity formula.
+VO2X → training pace table using Jack Daniels' velocity formula.
 
 ```
-Input:  vdot (float)
+Input:  vo2x (float)
 Output: Paces(easy_min_per_km, marathon_min_per_km, threshold_min_per_km,
               interval_min_per_km, repetition_min_per_km)
 
 Velocity formula:
-  v = (−0.182258 + √(0.03322 + 0.000416 × (VDOT×intensity + 4.6))) / −0.000208
+  v = (−0.182258 + √(0.03322 + 0.000416 × (VO2X×intensity + 4.6))) / −0.000208
   pace_min_per_km = 1000 / v
 
 Intensity by zone:
-  Easy: 70–79% VDOT
-  Marathon: 80–89% VDOT
-  Threshold: 88–92% VDOT
-  Interval: 95–100% VDOT
-  Repetition: >100% VDOT (VO2max peak)
+  Easy: 70–79% VO2X
+  Marathon: 80–89% VO2X
+  Threshold: 88–92% VO2X
+  Interval: 95–100% VO2X
+  Repetition: >100% VO2X (VO2max peak)
 
-All values are precomputed at integer VDOTs 30–85 and stored in a lookup table.
-Interpolation between table entries for sub-integer VDOT values.
+All values are precomputed at integer VO2Xs 30–85 and stored in a lookup table.
+Interpolation between table entries for sub-integer VO2X values.
 ```
 
 ### 4.4 `workouts.py`
@@ -250,7 +250,7 @@ Daniels variety rotation. Defines which specific quality session runs each week 
 Assembles the complete training plan from all engine modules.
 
 ```
-Input:  current_weekly_mileage, vdot, race_distance, race_date,
+Input:  current_weekly_mileage, vo2x, race_distance, race_date,
         start_date, race_hilliness, long_run_day, quality_day,
         training_profile, extra_training_days
 Output: full plan dict with all weeks
@@ -278,13 +278,13 @@ Closed-loop weekly adaptation.
 
 ```
 Input:  planned_next_volume, WeekSummary(actual_volume, avg_rpe, sessions_completed),
-        current_vdot, training_profile
-Output: (adjusted_volume, new_vdot, coaching_notes[])
+        current_vo2x, training_profile
+Output: (adjusted_volume, new_vo2x, coaching_notes[])
 
-VDOT nudge:
-  Compliance ≥80% → +0.5 VDOT (capped at old_vdot + 1.5)
+VO2X nudge:
+  Compliance ≥80% → +0.5 VO2X (capped at old_vo2x + 1.5)
   Compliance 60–80% → no change
-  Compliance <60% → −0.5 VDOT (min 20)
+  Compliance <60% → −0.5 VO2X (min 20)
 
 Volume adaptation:
   Conservative: ±8% max change per week
@@ -338,7 +338,7 @@ Race time prediction for V2 onboarding.
 Two paths:
 
 EXPERIENCED (has recent race result):
-  1. Calculate VDOT from recent race (Daniels formula)
+  1. Calculate VO2X from recent race (Daniels formula)
   2. Scale marathon-equivalent to target distance + hill penalty
   3. Apply fitness modifier based on weekly mileage vs race distance
   4. Apply improvement factor (weeks to race × plan aggressiveness)
@@ -346,13 +346,13 @@ EXPERIENCED (has recent race result):
 
 BEGINNER (no recent race):
   1. Map ability level → 5K time (from BEGINNER_5K_TIMES table)
-  2. Calculate VDOT from that 5K time
+  2. Calculate VO2X from that 5K time
   3. Scale to target distance × ability-based multiplier
   4. No fitness modifier (beginner, unconstrained)
   5. Apply beginner improvement factor (higher rate — aerobic gains are rapid)
   6. Wider range (±12%)
 
-Both paths: skip fitness_modifier for VDOT-direct athletes (modifier already baked in)
+Both paths: skip fitness_modifier for VO2X-direct athletes (modifier already baked in)
 ```
 
 ### 4.12 `race_presets.py`
@@ -381,7 +381,7 @@ durban_city_marathon → 42.2km, marathon, medium (0.07), July
 | `POST` | `/athlete/c25k` | Create C25K athlete profile |
 | `POST` | `/athlete/{telegram_id}/graduate` | Graduate C25K → full plan |
 | `GET` | `/athlete/{telegram_id}` | Get athlete |
-| `GET` | `/athlete/{telegram_id}/paces` | Get VDOT training paces |
+| `GET` | `/athlete/{telegram_id}/paces` | Get VO2X training paces |
 | `PATCH` | `/athlete/{telegram_id}/location` | Set lat/lon/run_hour |
 | `DELETE` | `/athlete/{telegram_id}` | Delete athlete + cascade history |
 | `GET` | `/athletes/all` | All athletes (for scheduler) |
@@ -399,9 +399,9 @@ durban_city_marathon → 42.2km, marathon, medium (0.07), July
 | `POST` | `/log/run` | Log a training run |
 | `GET` | `/log/{telegram_id}/week/{n}/summary` | Week log summary |
 | `POST` | `/log/{telegram_id}/adapt` | Trigger weekly adaptation |
-| `POST` | `/log/race` | Log race result, update VDOT (with guard) |
+| `POST` | `/log/race` | Log race result, update VO2X (with guard) |
 | `POST` | `/log/{telegram_id}/c25k/adapt` | C25K week adaptation |
-| `POST` | `/log/c25k/timetrial` | End-of-C25K 5K time trial → VDOT |
+| `POST` | `/log/c25k/timetrial` | End-of-C25K 5K time trial → VO2X |
 
 ### Weather
 | Method | Path | Description |
@@ -437,7 +437,7 @@ NAME(0) → RACE_SELECT(1)
     → has recent race → RECENT_DIST(6) → RECENT_TIME(7) → WEEKLY_KM(9)
     → beginner → BEGINNER_ABILITY(8) → (couch/run5k) → LOCATION(12)
                                → (else) → WEEKLY_KM(9)
-    → VDOT direct → VDOT_INPUT(13) → WEEKLY_KM(9)
+    → VO2X direct → VO2X_INPUT(13) → WEEKLY_KM(9)
         ↓
   WEEKLY_KM(9) → LONGEST_RUN(10) → PLAN_TYPE(11)
                                              ↓
@@ -477,7 +477,7 @@ All rendered in `ui.py` and callable from both `CommandHandler` entry points and
 
 - **`show_today`** — fetches athlete + week + summary + weather in parallel, renders today session, optional AI coaching message from n8n, TRUEPACE block, session player URL for quality sessions
 - **`show_plan`** — renders 7-day week table with logged-done / today / tomorrow / future status
-- **`show_dashboard`** — compliance bar, phase, weeks to race, VDOT, streak, reward progress, Two Oceans batch
+- **`show_dashboard`** — compliance bar, phase, weeks to race, VO2X, streak, reward progress, Two Oceans batch
 - **`show_paces`** — two-column paces table (base vs outdoor-adjusted if weather available)
 - **`show_settings`** — location instructions, training days link, reset option
 
@@ -500,17 +500,17 @@ APScheduler fires `send_daily_reminders()` every hour (minute=0, SA timezone).
 
 ## 8. Key Algorithms
 
-### VDOT from race result
+### VO2X from race result
 ```
 T = finish time (minutes), D = distance (km)
 v = (−0.182258 + √(0.03322 + 0.000416 × (4.6 − T×1000/D))) / −0.000208
-VDOT = T×1000/D × 60 / v
+VO2X = T×1000/D × 60 / v
 ```
 (Exact inverse of the velocity formula in paces.py — verified against Daniels table)
 
 ### Race time prediction (experienced)
 ```
-1. vdot = calculate_vdot_from_race(recent_dist, recent_time)
+1. vo2x = calculate_vo2x_from_race(recent_dist, recent_time)
 2. marathon_eq = recent_time × (42.195/recent_dist)^1.06
 3. base = marathon_eq × (target_dist/42.195) × (1 + hill_factor)
 4. If weekly_mileage/target < 0.5 → modifier = 1.25 (slow)
@@ -562,7 +562,7 @@ GET https://api.open-meteo.com/v1/forecast
 |---|---|---|
 | Session player | `MINI_APP_BASE_URL` | Guided quality session with intervals + paces |
 | Crossing game | `MINI_APP_BASE_URL` | Weekly Sunday game — lives × roads to race |
-| Level-up | `MINI_APP_BASE_URL` | VDOT integer boundary celebration screen |
+| Level-up | `MINI_APP_BASE_URL` | VO2X integer boundary celebration screen |
 
 ---
 
@@ -588,7 +588,7 @@ SQLite does not auto-add new columns to existing tables. After any `models.py` c
 
 ### Plans are live-computed
 `GET /plan/{id}/current` runs `build_full_plan()` fresh every time. No plan caching.
-VDOT and mileage changes take effect immediately on the next `/plan` call.
+VO2X and mileage changes take effect immediately on the next `/plan` call.
 
 ### State integer collision prevention
 Log handler states (0–3) and onboarding states (0–13) are in separate `ConversationHandler`s so no collision.
@@ -596,9 +596,9 @@ Race log states use 10–12 (aliased as `LR_RACE_DIST`, etc.) to avoid overlap.
 Training days change uses 200–203.
 Coach chat uses state 100.
 
-### VDOT update guard on race logging
-Race result drops VDOT by >3 points → requires `force=True` or shows guard message.
-Always writes to `VDOTHistory` regardless. VDOT increases always accepted.
+### VO2X update guard on race logging
+Race result drops VO2X by >3 points → requires `force=True` or shows guard message.
+Always writes to `VO2XHistory` regardless. VO2X increases always accepted.
 
 ### User text sanitisation
 Any user-supplied text echoed in `parse_mode="HTML"` must be HTML-escaped first (`html.escape()` or `_safe()`).

@@ -105,7 +105,7 @@ async def get_prediction(req: PredictRequest):
             "high_minutes": round(result.high_minutes),
         },
         "goal_time":    result.mid_fmt(),
-        "vdot":         result.vdot,
+        "vo2x":         result.vo2x,
         "training_focus": result.training_focus,
         "warnings":     result.warnings,
         "weeks_to_race": result.weeks_to_race,

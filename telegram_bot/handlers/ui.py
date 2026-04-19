@@ -279,9 +279,9 @@ async def _fetch_coached_message(
     # Calculate weeks to race
     weeks_to_race = max(0, (week.get("total_weeks", 18) - week.get("week_number", 1)))
 
-    # Get paces from VDOT
-    vdot  = athlete.get("vdot", 40)
-    paces = calculate_paces(vdot)
+    # Get paces from VO2X
+    vo2x  = athlete.get("vo2x", 40)
+    paces = calculate_paces(vo2x)
 
     payload = {
         "athlete_name":     athlete.get("name", "Runner"),
@@ -340,8 +340,8 @@ async def show_today(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: b
     if athlete and week.get("plan_type") != "c25k":
         try:
             from coach_core.engine.paces import calculate_paces, format_pace
-            _vdot = athlete.get("vdot", 40)
-            _p = calculate_paces(_vdot)
+            _vo2x = athlete.get("vo2x", 40)
+            _p = calculate_paces(_vo2x)
             paces_dict = {
                 "easy":        format_pace(_p.easy_min_per_km),
                 "threshold":   format_pace(_p.threshold_min_per_km),
@@ -492,14 +492,14 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
             RacePrediction, _comrades_direction, _comrades_medal
         )
 
-        vdot          = athlete.get("vdot")
+        vo2x          = athlete.get("vo2x")
         race_distance = athlete.get("race_distance", "")
         race_date_str = str(athlete.get("race_date") or "")
         preset_id     = athlete.get("preset_race_id")
         hilliness     = athlete.get("race_hilliness", "low")
         weekly_km     = float(athlete.get("current_weekly_mileage") or 30.0)
 
-        if vdot and race_distance and race_date_str:
+        if vo2x and race_distance and race_date_str:
             _DIST_MAP = {
                 "5k": 5.0, "10k": 10.0, "half": 21.0975,
                 "marathon": 42.195, "ultra_56": 56.0, "ultra_90": 90.0,
@@ -528,7 +528,7 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
                 race_distance_km  = dist_km,
                 hill_factor       = hill_factor,
                 race_date         = race_date_obj,
-                direct_vdot       = float(vdot),
+                direct_vo2x       = float(vo2x),
                 weekly_mileage_km = weekly_km,
                 longest_run_km    = weekly_km * 0.4,
                 plan_type         = pred_plan_type,
@@ -576,7 +576,7 @@ async def show_paces(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: b
             if r.status_code == 400:
                 await _send_or_edit(
                     update,
-                    "No VDOT yet — complete C25K and log a time trial to unlock paces.",
+                    "No VO2X yet — complete C25K and log a time trial to unlock paces.",
                     back_keyboard(), edit,
                 )
                 return
@@ -689,7 +689,7 @@ async def show_calendar_ics(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if week.get("plan_type") != "c25k":
         try:
             from coach_core.engine.paces import calculate_paces, format_pace
-            _p = calculate_paces(athlete.get("vdot", 40))
+            _p = calculate_paces(athlete.get("vo2x", 40))
             paces_dict = {
                 "easy":       format_pace(_p.easy_min_per_km),
                 "threshold":  format_pace(_p.threshold_min_per_km),

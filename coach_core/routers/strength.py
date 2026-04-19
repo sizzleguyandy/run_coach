@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_
 
 from coach_core.database import get_db
-from coach_core.models import Athlete, StrengthTemplate, StrengthLog, RunLog, VDOTHistory
+from coach_core.models import Athlete, StrengthTemplate, StrengthLog, RunLog, VO2XHistory
 from coach_core.engine.strength_adaptation import (
     compute_strength_block_hours,
     is_running_blocked,
@@ -31,7 +31,7 @@ from coach_core.engine.strength_adaptation import (
     pace_gap_cooldown_active,
     pace_gap_bot_message,
     PACE_GAP_WINDOW_DAYS,
-    PACE_GAP_VDOT_DROP,
+    PACE_GAP_VO2X_DROP,
     PACE_GAP_COOLDOWN_DAYS,
 )
 
@@ -275,29 +275,29 @@ async def run_pace_gap_check(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Daily pace-gap VDOT check for a single athlete.
+    Daily pace-gap VO2X check for a single athlete.
     Called by the APScheduler at 06:00 SA for all full-plan athletes.
 
     Logic:
       - Fetch run_logs from last 14 days with prescribed_pace_min_per_km set
-      - If ≥70% of sessions slower than prescribed by >5%  → apply −0.5 VDOT
+      - If ≥70% of sessions slower than prescribed by >5%  → apply −0.5 VO2X
       - Cooldown: 14 days after any adjustment
-      - Returns triggered=True if VDOT was adjusted (scheduler sends bot message)
+      - Returns triggered=True if VO2X was adjusted (scheduler sends bot message)
     """
     athlete = await _get_athlete(telegram_id, db)
 
-    # Only full-plan athletes have VDOT-based paces
-    if athlete.plan_type != "full" or not athlete.vdot:
+    # Only full-plan athletes have VO2X-based paces
+    if athlete.plan_type != "full" or not athlete.vo2x:
         return {"triggered": False, "reason": "not_applicable"}
 
     today = date.today()
 
     # Check cooldown
-    if pace_gap_cooldown_active(athlete.vdot_pace_check_cooldown_until, today):
+    if pace_gap_cooldown_active(athlete.vo2x_pace_check_cooldown_until, today):
         return {
             "triggered": False,
             "reason": "cooldown_active",
-            "cooldown_until": athlete.vdot_pace_check_cooldown_until.isoformat(),
+            "cooldown_until": athlete.vo2x_pace_check_cooldown_until.isoformat(),
         }
 
     # Fetch run logs from last 14 days
@@ -333,31 +333,31 @@ async def run_pace_gap_check(
             "reason":           "threshold_not_met" if result["eligible"] else "insufficient_data",
         }
 
-    # Apply −0.5 VDOT
-    old_vdot = athlete.vdot
-    new_vdot = round(max(25.0, old_vdot - PACE_GAP_VDOT_DROP), 1)
-    athlete.vdot = new_vdot
-    athlete.vdot_pace_check_cooldown_until = today + timedelta(days=PACE_GAP_COOLDOWN_DAYS)
+    # Apply −0.5 VO2X
+    old_vo2x = athlete.vo2x
+    new_vo2x = round(max(25.0, old_vo2x - PACE_GAP_VO2X_DROP), 1)
+    athlete.vo2x = new_vo2x
+    athlete.vo2x_pace_check_cooldown_until = today + timedelta(days=PACE_GAP_COOLDOWN_DAYS)
 
-    db.add(VDOTHistory(
+    db.add(VO2XHistory(
         athlete_id=athlete.id,
-        vdot=new_vdot,
+        vo2x=new_vo2x,
         source="pace_adjusted",
         effective_date=today,
     ))
     await db.commit()
 
     _log.info(
-        f"Pace-gap VDOT drop: {telegram_id} {old_vdot} → {new_vdot} "
+        f"Pace-gap VO2X drop: {telegram_id} {old_vo2x} → {new_vo2x} "
         f"({result['below_pace_count']}/{result['sessions_checked']} sessions below pace)"
     )
 
     return {
         "triggered":        True,
-        "old_vdot":         old_vdot,
-        "new_vdot":         new_vdot,
+        "old_vo2x":         old_vo2x,
+        "new_vo2x":         new_vo2x,
         "sessions_checked": result["sessions_checked"],
         "below_pace_count": result["below_pace_count"],
         "below_pace_pct":   result["below_pace_pct"],
-        "message":          pace_gap_bot_message(old_vdot, new_vdot),
+        "message":          pace_gap_bot_message(old_vo2x, new_vo2x),
     }

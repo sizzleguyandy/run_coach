@@ -9,7 +9,7 @@ from coach_core.engine.workouts import build_week_days
 
 def build_full_plan(
     current_weekly_mileage: float,
-    vdot: float,
+    vo2x: float,
     race_distance: str,
     race_date: date,
     start_date: date,
@@ -31,7 +31,7 @@ def build_full_plan(
 
     phases = get_phases(total_weeks)
     volumes = build_volume_curve(current_weekly_mileage, race_distance, phases, training_profile)
-    paces = calculate_paces(vdot)
+    paces = calculate_paces(vo2x)
 
     weeks = []
     for i, volume in enumerate(volumes, start=1):
@@ -55,7 +55,7 @@ def build_full_plan(
             "phase_IV_weeks": phases.phase_IV,
         },
         "paces": {
-            "vdot": vdot,
+            "vo2x": vo2x,
             "easy": format_pace(paces.easy_min_per_km),
             "marathon": format_pace(paces.marathon_min_per_km),
             "threshold": format_pace(paces.threshold_min_per_km),

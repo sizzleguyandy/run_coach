@@ -13,7 +13,7 @@ The TR3D Strength Module replaces the parked Hevy integration with a built-in HT
 
 Alongside this, the existing **treadmill session player** (`session.html`) is upgraded to auto-log completed sessions and allow real-time pace adjustment during intervals.
 
-A new **VDOT pace-gap check** closes the feedback loop by detecting when users are consistently running below prescribed paces and nudging VDOT down by 0.5.
+A new **VO2X pace-gap check** closes the feedback loop by detecting when users are consistently running below prescribed paces and nudging VO2X down by 0.5.
 
 ### Key Principles
 
@@ -36,7 +36,7 @@ The existing stack (FastAPI + SQLAlchemy + python-telegram-bot + SQLite) is exte
 | Bot integration | `python-telegram-bot` | `/strength` command, scheduler reminders |
 | Backend endpoints | FastAPI (new routes) | Template CRUD, strength log storage, adaptation flag |
 | Database | SQLite | 2 new tables, 5 new `athletes` columns, 1 new `run_logs` column |
-| Scheduler | APScheduler (existing) | Strength day reminders, pace-gap VDOT check |
+| Scheduler | APScheduler (existing) | Strength day reminders, pace-gap VO2X check |
 | n8n | Existing workflows | Strength summary injected into weekly/monthly reports |
 
 All new backend code lives in `coach_core/routers/strength.py` and `coach_core/engine/strength_adaptation.py`.
@@ -127,7 +127,7 @@ One row per completed strength session.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `prescribed_pace_min_per_km` | FLOAT NULL | Pace the system prescribed for this session at log time. Stored once — does not change if VDOT is later adjusted. |
+| `prescribed_pace_min_per_km` | FLOAT NULL | Pace the system prescribed for this session at log time. Stored once — does not change if VO2X is later adjusted. |
 
 Actual pace is always derived from existing data: `duration_minutes / actual_distance_km`. No additional column needed.
 
@@ -277,11 +277,11 @@ When the bot fetches today's session (`GET /plan/{id}/current`) or sends a remin
 
 ### Interaction with existing adaptation
 
-The existing `adaptation.py` VDOT nudge (compliance-based) is unchanged. The strength block only affects session type for the duration of the block — it does not alter VDOT or weekly volume targets.
+The existing `adaptation.py` VO2X nudge (compliance-based) is unchanged. The strength block only affects session type for the duration of the block — it does not alter VO2X or weekly volume targets.
 
 ---
 
-## 8. VDOT Pace-Gap Check
+## 8. VO2X Pace-Gap Check
 
 A new scheduled check runs once per day (suggested: 06:00 SA time, alongside existing scheduler).
 
@@ -292,12 +292,12 @@ For each athlete with `plan_type = "full"`:
 1. Fetch all `run_logs` from the past 14 days where `actual_distance_km > 0` and `duration_minutes > 0`.
 2. For each log, calculate actual pace: `actual_pace = duration_minutes / actual_distance_km`.
 3. Compare to `prescribed_pace_min_per_km`. If actual pace is **slower** than prescribed by more than 5% → mark as "below pace".
-4. If ≥ 70% of sessions in the window are "below pace" → trigger VDOT adjustment.
-5. Apply **−0.5 VDOT** to the athlete.
-6. Write to `vdot_history` with `source = "pace_adjusted"`.
+4. If ≥ 70% of sessions in the window are "below pace" → trigger VO2X adjustment.
+5. Apply **−0.5 VO2X** to the athlete.
+6. Write to `vo2x_history` with `source = "pace_adjusted"`.
 7. Set a 14-day cooldown: do not re-evaluate this athlete until the cooldown expires.
 8. Send a bot message explaining the change:
-   > *"Your recent runs suggest your current paces may be a little high. I've adjusted your VDOT from 42.0 to 41.5 — your new paces will feel more manageable. Keep showing up and it'll come back up."*
+   > *"Your recent runs suggest your current paces may be a little high. I've adjusted your VO2X from 42.0 to 41.5 — your new paces will feel more manageable. Keep showing up and it'll come back up."*
 
 ### Applies to all logged runs
 
@@ -305,13 +305,13 @@ Both treadmill (auto-logged) and outdoor runs (manually logged via `/log`). The 
 
 ### Does not apply to
 
-- C25K athletes (`plan_type = "c25k"`) — they have no VDOT.
+- C25K athletes (`plan_type = "c25k"`) — they have no VO2X.
 - Athletes with fewer than 5 logged runs in the 14-day window — insufficient data.
 - Athletes currently in a cooldown period.
 
 ### Cooldown storage
 
-A new column `vdot_pace_check_cooldown_until` (DATE NULL) on `athletes`. NULL = no cooldown active.
+A new column `vo2x_pace_check_cooldown_until` (DATE NULL) on `athletes`. NULL = no cooldown active.
 
 > **Note:** This adds a 6th new column to `athletes` beyond the 5 strength columns. Migration script covers all.
 
@@ -343,7 +343,7 @@ Auth: `telegram_id` passed as query param or `X-Telegram-Init-Data` header (matc
 
 - **Strength day reminder:** If today is in `athlete.strength_days` and time = `athlete.run_hour - 2h`, send: *"💪 Strength day — your [Phase] session is ready. [Open]"*
 - **Missed sessions nudge:** If athlete has missed 3 consecutive scheduled strength days, send a single nudge (not repeated daily).
-- **VDOT pace-gap check:** Daily at 06:00 SA — runs the pace-gap evaluation for all full-plan athletes.
+- **VO2X pace-gap check:** Daily at 06:00 SA — runs the pace-gap evaluation for all full-plan athletes.
 
 ### Settings update
 

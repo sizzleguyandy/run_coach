@@ -274,7 +274,7 @@ from coach_core.engine.c25k import build_c25k_week, adapt_c25k_week
 from coach_core.engine.truepace import compute_adjustment
 from coach_core.engine.sa_cities import find_city, SA_CITIES
 from coach_core.engine.hills import should_replace_with_hills
-from coach_core.engine.adaptation import calculate_vdot_from_race, adapt_next_week, WeekSummary
+from coach_core.engine.adaptation import calculate_vo2x_from_race, adapt_next_week, WeekSummary
 
 results = []
 def test(name, cond):
@@ -296,18 +296,18 @@ test("5k taper = 1 week",           get_taper_weeks('5k')==1)
 
 # Paces
 p50 = calculate_paces(50)
-test("VDOT50 easy = 4:37 /km",      format_pace(p50.easy_min_per_km)=="4:37 /km")
-test("VDOT50 threshold = 3:20 /km", format_pace(p50.threshold_min_per_km)=="3:20 /km")
-test("VDOT50 interval = 2:51 /km",  format_pace(p50.interval_min_per_km)=="2:51 /km")
+test("VO2X50 easy = 4:37 /km",      format_pace(p50.easy_min_per_km)=="4:37 /km")
+test("VO2X50 threshold = 3:20 /km", format_pace(p50.threshold_min_per_km)=="3:20 /km")
+test("VO2X50 interval = 2:51 /km",  format_pace(p50.interval_min_per_km)=="2:51 /km")
 
-# VDOT from race
-test("5k 20min → VDOT ~49.8",       abs(calculate_vdot_from_race(5,20)-49.8)<0.5)
-test("Marathon 3:30 → VDOT ~44.6",  abs(calculate_vdot_from_race(42.195,210)-44.6)<0.5)
+# VO2X from race
+test("5k 20min → VO2X ~49.8",       abs(calculate_vo2x_from_race(5,20)-49.8)<0.5)
+test("Marathon 3:30 → VO2X ~44.6",  abs(calculate_vo2x_from_race(42.195,210)-44.6)<0.5)
 
-# VDOT cap fix
+# VO2X cap fix
 s = WeekSummary(80,80,4.5,5)
 _, v, _ = adapt_next_week(80, s, 84.8)
-test("VDOT nudge cap = 85 (not 80)", v==85.0)
+test("VO2X nudge cap = 85 (not 80)", v==85.0)
 
 # C25K
 test("C25K 12 weeks",               len(build_c25k_week(1)['days'])==7)
@@ -397,12 +397,12 @@ FastAPI also calls:
 |---|---|
 | `phases.py` | Allocates weeks into Phase I/II/III/IV. No side effects. |
 | `volume.py` | Generates weekly volume curve from current mileage to peak, then taper. |
-| `paces.py` | VDOT → pace lookup (Daniels 4th ed table, VDOT 30–85, interpolated). |
+| `paces.py` | VO2X → pace lookup (Daniels 4th ed table, VO2X 30–85, interpolated). |
 | `workouts.py` | Builds the 7-day session dict for a given week. Calls hills.py for quality substitution. |
 | `plan_builder.py` | Assembles full plan by calling phases → volume → paces → workouts for every week. |
 | `hills.py` | Determines when/if to replace flat quality sessions with hill work. Prescribes hill workouts. |
-| `adaptation.py` | Post-week closed loop: adjusts volume + VDOT based on compliance and RPE. |
-| `c25k.py` | Standalone C25K programme. 12-week static schedule, adaptation, VDOT graduation. |
+| `adaptation.py` | Post-week closed loop: adjusts volume + VO2X based on compliance and RPE. |
+| `c25k.py` | Standalone C25K programme. 12-week static schedule, adaptation, VO2X graduation. |
 | `truepace.py` | Fetches Open-Meteo weather, computes pace adjustment factor, 1-hour cache. |
 | `sa_cities.py` | 30-city SA lookup table. find_city() resolves names and aliases to lat/lon. |
 
@@ -425,7 +425,7 @@ FastAPI also calls:
 | `handlers/onboarding.py` | 11-state ConversationHandler for /start. Branches to C25K or full plan. |
 | `handlers/ui.py` | All inline button callbacks. show_today/plan/dashboard/paces/settings. |
 | `handlers/plan_handler.py` | /plan /today /dashboard /paces /location commands. Delegates to ui.py. |
-| `handlers/log_handler.py` | /log (run logging) and /lograce (race result + VDOT update) ConversationHandlers. |
+| `handlers/log_handler.py` | /log (run logging) and /lograce (race result + VO2X update) ConversationHandlers. |
 
 ---
 
@@ -439,7 +439,7 @@ FastAPI also calls:
 | `/plan` | This week's full 7-day plan |
 | `/dashboard` | Weekly snapshot: compliance, days done, days to race, phase |
 | `/log` | Log a completed training run |
-| `/lograce` | Log a race result — updates VDOT with guard logic |
+| `/lograce` | Log a race result — updates VO2X with guard logic |
 | `/paces` | Training paces for all zones (E/M/T/I/R) |
 | `/progress` | Week summary with compliance bar |
 | `/location` | Set city for TRUEPACE weather adjustments |
@@ -455,8 +455,8 @@ FastAPI also calls:
   ↓
 Q1: Experience level
   [🌱 Beginner] → Q2: Name → Q3: City → DONE (C25K plan)
-  [🏃 Returning] → Q2: Name → Q3: Mileage → Q4: VDOT method...
-  [💪 Regular]   → Q2: Name → Q3: Mileage → Q4: VDOT method...
+  [🏃 Returning] → Q2: Name → Q3: Mileage → Q4: VO2X method...
+  [💪 Regular]   → Q2: Name → Q3: Mileage → Q4: VO2X method...
                                                       ↓
                                             [Know it]   → Q4a: Enter number
                                             [Estimate]  → Q4b: Race distance
@@ -478,13 +478,13 @@ Q1: Experience level
 These are non-obvious behaviours that matter for correct operation:
 
 **1. Plan is generated on the fly — not stored**
-The plan is recalculated each time `GET /plan/{id}/current` is called. Only the athlete profile is persisted. This means VDOT or mileage changes take effect immediately on the next `/plan` call.
+The plan is recalculated each time `GET /plan/{id}/current` is called. Only the athlete profile is persisted. This means VO2X or mileage changes take effect immediately on the next `/plan` call.
 
 **2. C25K plan_type gates everything**
-When `athlete.plan_type == "c25k"`, the plan and weather routers return C25K-specific responses. The paces endpoint returns 400. Always check `plan_type` before assuming a VDOT exists.
+When `athlete.plan_type == "c25k"`, the plan and weather routers return C25K-specific responses. The paces endpoint returns 400. Always check `plan_type` before assuming a VO2X exists.
 
-**3. VDOT race result guard**
-`POST /log/race` will NOT update the live VDOT if the result is more than 3 points lower than current. It returns `vdot_updated: false`. The athlete must resubmit with `force: true` to override. All results are always stored in `VDOTHistory` regardless.
+**3. VO2X race result guard**
+`POST /log/race` will NOT update the live VO2X if the result is more than 3 points lower than current. It returns `vo2x_updated: false`. The athlete must resubmit with `force: true` to override. All results are always stored in `VO2XHistory` regardless.
 
 **4. TRUEPACE is always optional**
 Every code path that calls `fetch_weather()` wraps it in try/except and falls back gracefully. The plan is never blocked by a weather failure.
@@ -508,7 +508,7 @@ telegram_id           TEXT UNIQUE NOT NULL
 name                  TEXT NOT NULL
 plan_type             TEXT DEFAULT 'full'       -- 'full' or 'c25k'
 current_weekly_mileage REAL                     -- NULL for c25k until graduation
-vdot                  REAL                     -- NULL for c25k until graduation
+vo2x                  REAL                     -- NULL for c25k until graduation
 race_distance         TEXT                     -- '5k','10k','half','marathon','ultra'
 race_hilliness        TEXT DEFAULT 'low'       -- 'low','medium','high'
 race_date             DATE
@@ -536,11 +536,11 @@ notes                 TEXT
 logged_at             DATETIME
 ```
 
-### vdot_history
+### vo2x_history
 ```sql
 id                    INTEGER PRIMARY KEY
 athlete_id            INTEGER REFERENCES athletes(id)
-vdot                  REAL NOT NULL
+vo2x                  REAL NOT NULL
 source                TEXT    -- 'initial','race','time_trial','adjusted','c25k_graduation'
 effective_date        DATE NOT NULL
 created_at            DATETIME
@@ -568,8 +568,8 @@ created_at            DATETIME
 - Open-Meteo is a free external API — it can be slow or temporarily unavailable
 - This is always silent — the plan shows without weather rather than failing
 
-**VDOT race result says `vdot_updated: false`**
-- The result dropped more than 3 VDOT points — this is the safety guard
+**VO2X race result says `vo2x_updated: false`**
+- The result dropped more than 3 VO2X points — this is the safety guard
 - In `/lograce` the bot explains this and asks for confirmation
 - To force-accept: resubmit `POST /log/race` with `"force": true`
 
@@ -636,8 +636,8 @@ The current setup uses long-polling (`run_polling`). For production, Telegram we
 2. Include aliases tuple (can be empty)
 3. No other changes needed
 
-**Changing VDOT drop threshold:**
-1. Edit `VDOT_DROP_THRESHOLD = 3.0` in `coach_core/routers/log.py`
+**Changing VO2X drop threshold:**
+1. Edit `VO2X_DROP_THRESHOLD = 3.0` in `coach_core/routers/log.py`
 
 ---
 

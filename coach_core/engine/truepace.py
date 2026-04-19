@@ -168,7 +168,7 @@ def adjust_all_paces(paces_dict: dict, factor: float) -> dict:
     """
     adjusted = {}
     for zone, pace_str in paces_dict.items():
-        if zone == "vdot":
+        if zone == "vo2x":
             adjusted[zone] = pace_str
             continue
         # Parse "M:SS /km"

@@ -2,10 +2,10 @@
 Race Time Predictor — V2 onboarding engine.
 
 Implements the Race Time Predictor & Training Recommender V1.0 spec.
-Works alongside the existing Daniels VDOT engine (paces.py, adaptation.py).
+Works alongside the existing Daniels VO2X engine (paces.py, adaptation.py).
 
 Two paths:
-  Experienced: VDOT from recent race result -> scale to target race
+  Experienced: VO2X from recent race result -> scale to target race
   Beginner:    5K estimate from ability level -> scale to target race
 
 Both paths apply fitness modifier, improvement factor, and final range.
@@ -19,7 +19,7 @@ from typing import Optional
 
 import math as _math
 
-from coach_core.engine.adaptation import calculate_vdot_from_race, vdot_to_5k_minutes
+from coach_core.engine.adaptation import calculate_vo2x_from_race, vo2x_to_5k_minutes
 
 # Daniels velocity-formula constants (mirrors paces.py — kept local to avoid circular import)
 _DA = 0.000104
@@ -27,19 +27,19 @@ _DB = 0.182258
 _DC = 4.60
 
 
-def _daniels_time_minutes(vdot: float, distance_km: float) -> float:
+def _daniels_time_minutes(vo2x: float, distance_km: float) -> float:
     """
     Predict finish time using the Daniels velocity formula directly.
     Uses the same engine as paces.py so predictions are internally consistent.
 
     Intensity by distance:
-      ≤5.5km   → I pace (97.5% VDOT) — 5K race effort
-      ≤11km    → 92% VDOT — 10K effort
-      ≤22km    → T pace (88% VDOT) — half marathon threshold effort
-      ≤43km    → M pace (81% VDOT) — marathon effort
+      ≤5.5km   → I pace (97.5% VO2X) — 5K race effort
+      ≤11km    → 92% VO2X — 10K effort
+      ≤22km    → T pace (88% VO2X) — half marathon threshold effort
+      ≤43km    → M pace (81% VO2X) — marathon effort
       >43km    → Riegel from marathon baseline (ultra distances)
     """
-    vdot = max(30.0, min(85.0, float(vdot)))
+    vo2x = max(30.0, min(85.0, float(vo2x)))
     dist_m = distance_km * 1000.0
 
     if distance_km <= 5.5:
@@ -52,12 +52,12 @@ def _daniels_time_minutes(vdot: float, distance_km: float) -> float:
         pct = 0.81
     else:
         # Ultra: scale from marathon using Riegel exponents
-        marathon_v = (-_DB + _math.sqrt(_DB*_DB + 4.0*_DA*(vdot*0.81 + _DC))) / (2.0*_DA)
+        marathon_v = (-_DB + _math.sqrt(_DB*_DB + 4.0*_DA*(vo2x*0.81 + _DC))) / (2.0*_DA)
         marathon_min = 42195.0 / marathon_v
         exp = 1.10 if distance_km <= 60.0 else 1.12
         return marathon_min * (distance_km / 42.2) ** exp
 
-    v = (-_DB + _math.sqrt(_DB*_DB + 4.0*_DA*(vdot*pct + _DC))) / (2.0*_DA)
+    v = (-_DB + _math.sqrt(_DB*_DB + 4.0*_DA*(vo2x*pct + _DC))) / (2.0*_DA)
     return dist_m / v
 
 
@@ -160,8 +160,8 @@ class PredictionInput:
     # Plan type
     plan_type: str = "balanced"   # "balanced" | "conservative" | "injury_prone"
 
-    # Direct VDOT input (overrides both has_recent_race paths)
-    direct_vdot: Optional[float] = None
+    # Direct VO2X input (overrides both has_recent_race paths)
+    direct_vo2x: Optional[float] = None
 
 
 @dataclass
@@ -169,7 +169,7 @@ class PredictionResult:
     low_minutes:       float
     high_minutes:      float
     goal_mid_minutes:  float
-    vdot:              Optional[float]
+    vo2x:              Optional[float]
     training_focus:    list = field(default_factory=list)
     warnings:          list = field(default_factory=list)
     weeks_to_race:     int = 0
@@ -192,40 +192,40 @@ def _weeks_to_race(race_date: date) -> int:
 
 
 def _base_time(inp: PredictionInput) -> tuple[float, Optional[float]]:
-    """Compute base time (minutes) and VDOT. Returns (base_minutes, vdot)."""
-    if inp.direct_vdot is not None:
-        # VDOT-direct path: use the Daniels velocity formula directly.
+    """Compute base time (minutes) and VO2X. Returns (base_minutes, vo2x)."""
+    if inp.direct_vo2x is not None:
+        # VO2X-direct path: use the Daniels velocity formula directly.
         # This keeps predictions consistent with the training paces the athlete
         # sees in their plan (paces.py uses the same formula).
-        # Hill factor is NOT applied here — VDOT is derived from a marathon
+        # Hill factor is NOT applied here — VO2X is derived from a marathon
         # performance that already reflects the runner's terrain fitness.
-        vdot = float(inp.direct_vdot)
-        base = _daniels_time_minutes(vdot, inp.race_distance_km)
-        return base, vdot
+        vo2x = float(inp.direct_vo2x)
+        base = _daniels_time_minutes(vo2x, inp.race_distance_km)
+        return base, vo2x
 
     if inp.has_recent_race:
         # Experienced path
         dist = inp.recent_race_distance_km or 42.195
         time = inp.recent_race_time_minutes or 240.0
-        vdot = calculate_vdot_from_race(dist, time)
+        vo2x = calculate_vo2x_from_race(dist, time)
 
         # Marathon equivalent using Daniels power law
         marathon_eq = time * (42.195 / dist) ** 1.06
 
         if abs(dist - inp.race_distance_km) < 0.01:
             # Same distance — no hill or scaling factor needed.
-            # VDOT already reflects performance at this distance/terrain.
+            # VO2X already reflects performance at this distance/terrain.
             base = marathon_eq
         else:
             # Different distance — scale and apply hill penalty for terrain delta
             base = marathon_eq * (inp.race_distance_km / 42.195) * (1.0 + inp.hill_factor)
-        return base, vdot
+        return base, vo2x
 
     else:
         # Beginner path
         ability = inp.beginner_ability or "run5k_slow"
         five_k = BEGINNER_5K_TIMES.get(ability, 35.0)
-        vdot = calculate_vdot_from_race(5.0, five_k)
+        vo2x = calculate_vo2x_from_race(5.0, five_k)
 
         dist = inp.race_distance_km
         if dist <= 10.0:
@@ -238,7 +238,7 @@ def _base_time(inp: PredictionInput) -> tuple[float, Optional[float]]:
             multiplier = (dist / 5.0) * 1.30
 
         base = five_k * multiplier * (1.0 + inp.hill_factor)
-        return base, vdot
+        return base, vo2x
 
 
 def _fitness_modifier(inp: PredictionInput, is_beginner: bool) -> float:
@@ -262,15 +262,15 @@ def _fitness_modifier(inp: PredictionInput, is_beginner: bool) -> float:
     return modifier
 
 
-def _improvement_factor(weeks: int, plan_type: str, has_known_vdot: bool = False) -> float:
+def _improvement_factor(weeks: int, plan_type: str, has_known_vo2x: bool = False) -> float:
     """
     Estimate how much the athlete can improve their finish time through training.
 
-    Beginners (no VDOT): high improvement rates — aerobic base grows quickly.
-    Trained athletes (known VDOT): low rates — they are already fit, gains are
-    incremental (roughly 0.5–1 VDOT point per month of structured training).
+    Beginners (no VO2X): high improvement rates — aerobic base grows quickly.
+    Trained athletes (known VO2X): low rates — they are already fit, gains are
+    incremental (roughly 0.5–1 VO2X point per month of structured training).
     """
-    if has_known_vdot:
+    if has_known_vo2x:
         # Trained runner improvement: realistic 2–4% over a full plan
         if weeks < 4:
             base = 0.0
@@ -302,10 +302,10 @@ def _final_range(
     goal_mid: float,
     plan_type: str,
     is_beginner: bool,
-    has_known_vdot: bool = False,
+    has_known_vo2x: bool = False,
 ) -> tuple[float, float]:
-    if has_known_vdot:
-        # VDOT is empirical — athlete has demonstrated their fitness in a race.
+    if has_known_vo2x:
+        # VO2X is empirical — athlete has demonstrated their fitness in a race.
         # Use a tight symmetric band: ±5% from goal mid.  Plan conservatism
         # affects improvement rate (already applied above), not the confidence
         # interval around a known fitness level.
@@ -358,7 +358,7 @@ def _training_focus(inp: PredictionInput, is_beginner: bool) -> list:
     return focus[:5]
 
 
-def _warnings(inp: PredictionInput, is_beginner: bool, weeks: int, vdot: Optional[float]) -> list:
+def _warnings(inp: PredictionInput, is_beginner: bool, weeks: int, vo2x: Optional[float]) -> list:
     warns = []
 
     if inp.weekly_mileage_km < inp.race_distance_km * 0.5:
@@ -400,42 +400,42 @@ def _warnings(inp: PredictionInput, is_beginner: bool, weeks: int, vdot: Optiona
 def predict(inp: PredictionInput) -> PredictionResult:
     """Full prediction pipeline. Returns PredictionResult."""
     # An athlete is only treated as a beginner if they have no race result AND
-    # no direct VDOT. Someone who enters their VDOT knows their fitness level —
+    # no direct VO2X. Someone who enters their VO2X knows their fitness level —
     # treating them as a beginner widens the range incorrectly.
-    has_known_vdot = inp.direct_vdot is not None or inp.has_recent_race
-    is_beginner = not has_known_vdot
+    has_known_vo2x = inp.direct_vo2x is not None or inp.has_recent_race
+    is_beginner = not has_known_vo2x
     weeks = _weeks_to_race(inp.race_date)
 
-    base, vdot       = _base_time(inp)
+    base, vo2x       = _base_time(inp)
 
-    if has_known_vdot and inp.race_distance_km <= 42.195:
-        # VDOT or recent race result already captures current fitness exactly
+    if has_known_vo2x and inp.race_distance_km <= 42.195:
+        # VO2X or recent race result already captures current fitness exactly
         # for distances up to and including marathon.
         # Applying a volume-based fitness modifier on top would double-count
         # and predict a time slower than the athlete can already run.
         # We skip the modifier entirely — base IS the current realistic time.
         modifier = 1.0
     else:
-        # For ultra distances (> 42.195km), VDOT alone under-predicts the
+        # For ultra distances (> 42.195km), VO2X alone under-predicts the
         # impact of training volume. A runner on 22km/week will suffer far
-        # more than VDOT predicts at 56km+. Apply the volume modifier even
-        # for athletes with a known VDOT to capture this real-world effect.
+        # more than VO2X predicts at 56km+. Apply the volume modifier even
+        # for athletes with a known VO2X to capture this real-world effect.
         modifier = _fitness_modifier(inp, is_beginner)
 
-    improvement      = _improvement_factor(weeks, inp.plan_type, has_known_vdot)
+    improvement      = _improvement_factor(weeks, inp.plan_type, has_known_vo2x)
 
     current_mid      = base * modifier
     goal_mid         = current_mid * (1.0 - improvement)
 
-    low, high        = _final_range(goal_mid, inp.plan_type, is_beginner, has_known_vdot)
+    low, high        = _final_range(goal_mid, inp.plan_type, is_beginner, has_known_vo2x)
     focus            = _training_focus(inp, is_beginner)
-    warns            = _warnings(inp, is_beginner, weeks, vdot)
+    warns            = _warnings(inp, is_beginner, weeks, vo2x)
 
     return PredictionResult(
         low_minutes      = low,
         high_minutes     = high,
         goal_mid_minutes = goal_mid,
-        vdot             = vdot,
+        vo2x             = vo2x,
         training_focus   = focus,
         warnings         = warns,
         weeks_to_race    = weeks,

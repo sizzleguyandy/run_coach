@@ -34,8 +34,8 @@ async def get_pace_adjustment(
     """
     athlete = await _get_athlete_or_404(telegram_id, db)
 
-    # C25K athletes have no VDOT yet
-    if athlete.plan_type == "c25k" or not athlete.vdot:
+    # C25K athletes have no VO2X yet
+    if athlete.plan_type == "c25k" or not athlete.vo2x:
         if not athlete.latitude or not athlete.longitude:
             return {"available": False, "reason": "Add your location with /location to enable TRUEPACE."}
 
@@ -61,9 +61,9 @@ async def get_pace_adjustment(
             "reason": "No location stored. Use /location to enable TRUEPACE weather adjustments.",
         }
 
-    paces = calculate_paces(athlete.vdot)
+    paces = calculate_paces(athlete.vo2x)
     paces_dict = {
-        "vdot":        athlete.vdot,
+        "vo2x":        athlete.vo2x,
         "easy":        format_pace(paces.easy_min_per_km),
         "marathon":    format_pace(paces.marathon_min_per_km),
         "threshold":   format_pace(paces.threshold_min_per_km),

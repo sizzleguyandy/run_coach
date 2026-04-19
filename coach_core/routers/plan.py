@@ -119,7 +119,7 @@ async def get_current_week_plan(telegram_id: str, db: AsyncSession = Depends(get
     # Full plan
     plan = build_full_plan(
         current_weekly_mileage=athlete.current_weekly_mileage,
-        vdot=athlete.vdot,
+        vo2x=athlete.vo2x,
         race_distance=athlete.race_distance,
         race_date=athlete.race_date,
         start_date=athlete.start_date,
@@ -172,7 +172,7 @@ async def get_week_plan(telegram_id: str, week_number: int, db: AsyncSession = D
 
     plan = build_full_plan(
         current_weekly_mileage=athlete.current_weekly_mileage,
-        vdot=athlete.vdot,
+        vo2x=athlete.vo2x,
         race_distance=athlete.race_distance,
         race_date=athlete.race_date,
         start_date=athlete.start_date,
@@ -211,7 +211,7 @@ async def get_full_plan(telegram_id: str, db: AsyncSession = Depends(get_db)):
 
     return build_full_plan(
         current_weekly_mileage=athlete.current_weekly_mileage,
-        vdot=athlete.vdot,
+        vo2x=athlete.vo2x,
         race_distance=athlete.race_distance,
         race_date=athlete.race_date,
         start_date=athlete.start_date,

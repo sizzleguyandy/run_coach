@@ -3,7 +3,7 @@ Adaptation engine — closed-loop logic.
 
 Runs after a week is complete. Takes actual run logs and returns:
   - adjusted volume for the next planned week
-  - adjusted VDOT (if warranted)
+  - adjusted VO2X (if warranted)
   - list of human-readable coaching notes
 """
 from coach_core.engine.training_profiles import get_profile
@@ -23,11 +23,11 @@ class WeekSummary:
 def adapt_next_week(
     planned_next_volume: float,
     summary: WeekSummary,
-    current_vdot: float,
+    current_vo2x: float,
     training_profile: str = "conservative",
 ) -> tuple[float, float, list[str]]:
     """
-    Returns (adjusted_volume, adjusted_vdot, coaching_notes).
+    Returns (adjusted_volume, adjusted_vo2x, coaching_notes).
 
     Volume rules are governed by the athlete's training_profile:
       conservative: under=−15%, over=+1%, RPE9 cap=−15%
@@ -37,7 +37,7 @@ def adapt_next_week(
     compliance = summary.actual_volume / max(summary.planned_volume, 0.1)
     notes: list[str] = []
     vol_modifier = 1.0
-    new_vdot = current_vdot
+    new_vo2x = current_vo2x
 
     # ── Volume adaptation ──────────────────────────────────────────────────
     under_penalty = profile["under_penalty"]     # e.g. 0.85 or 0.90
@@ -68,18 +68,18 @@ def adapt_next_week(
             vol_modifier = min(vol_modifier, rpe85_cap)
             notes.append(f"🟠 High RPE ({summary.avg_rpe:.1f}) — volume trimmed, keep intensity low.")
         elif summary.avg_rpe <= 5.0 and compliance >= 0.95:
-            new_vdot = min(current_vdot + 0.5, 85.0)
+            new_vo2x = min(current_vo2x + 0.5, 85.0)
             notes.append(
-                f"🟢 Low RPE + full compliance — VDOT nudged from {current_vdot} → {new_vdot}."
+                f"🟢 Low RPE + full compliance — VO2X nudged from {current_vo2x} → {new_vo2x}."
             )
 
     adjusted_volume = round(planned_next_volume * vol_modifier, 1)
-    return adjusted_volume, new_vdot, notes
+    return adjusted_volume, new_vo2x, notes
 
 
-def calculate_vdot_from_race(race_distance_km: float, finish_time_minutes: float) -> float:
+def calculate_vo2x_from_race(race_distance_km: float, finish_time_minutes: float) -> float:
     """
-    Calculate VDOT from a race performance using the Daniels formula.
+    Calculate VO2X from a race performance using the Daniels formula.
 
     Reference: Daniels Running Formula — oxygen cost and %VO2max equations.
     Valid for finish times 3–240 minutes.
@@ -98,20 +98,20 @@ def calculate_vdot_from_race(race_distance_km: float, finish_time_minutes: float
         + 0.2989558 * math.exp(-0.1932605 * t)
     )
 
-    vdot = vo2 / pct_vo2max
-    return round(max(25.0, min(85.0, vdot)), 1)
+    vo2x = vo2 / pct_vo2max
+    return round(max(25.0, min(85.0, vo2x)), 1)
 
 
-def vdot_to_5k_minutes(vdot: float) -> float:
-    """Inverse of calculate_vdot_from_race: given a VDOT, return the 5 km finish
-    time (in minutes) that would produce that VDOT.  Uses binary search over
-    the Daniels formula (valid range 3–240 min → VDOT 25–85).
+def vo2x_to_5k_minutes(vo2x: float) -> float:
+    """Inverse of calculate_vo2x_from_race: given a VO2X, return the 5 km finish
+    time (in minutes) that would produce that VO2X.  Uses binary search over
+    the Daniels formula (valid range 3–240 min → VO2X 25–85).
     """
-    target = float(vdot)
+    target = float(vo2x)
     lo, hi = 10.0, 120.0          # 5 km in ~10 min (elite) to ~120 min (walker)
     for _ in range(60):           # 60 iterations → < 0.0001 min precision
         mid = (lo + hi) / 2.0
-        if calculate_vdot_from_race(5.0, mid) > target:
+        if calculate_vo2x_from_race(5.0, mid) > target:
             lo = mid
         else:
             hi = mid

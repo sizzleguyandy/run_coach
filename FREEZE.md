@@ -16,10 +16,10 @@ Only bug fixes, hotfixes, and deployment configuration changes are permitted.
 ## Included in v1.5
 
 ### Core Engine
-- [x] Daniels VDOT methodology (formula-based, not lookup tables)
+- [x] Daniels VO2X methodology (formula-based, not lookup tables)
 - [x] 5 training intensities: Easy, Marathon, Threshold, Interval, Repetition
 - [x] 4-phase plan structure (Base / Repetitions / Intervals / Threshold + Taper)
-- [x] Closed-loop adaptation engine (volume + VDOT adjustment after each week)
+- [x] Closed-loop adaptation engine (volume + VO2X adjustment after each week)
 - [x] Training profiles: balanced, conservative, injury_prone
 - [x] Hill training adjustment by race hilliness
 - [x] C25K beginner programme (12-week, 3 sessions/week, walk/run intervals)
@@ -42,19 +42,19 @@ Only bug fixes, hotfixes, and deployment configuration changes are permitted.
 - [x] Om Die Dam intelligence doc
 - [x] Durban City Marathon intelligence doc
 - [x] parkrun intelligence doc
-- [x] Personalised VDOT checkpoint calculators for Comrades, Two Oceans, Cape Town, Soweto, Om Die Dam
+- [x] Personalised VO2X checkpoint calculators for Comrades, Two Oceans, Cape Town, Soweto, Om Die Dam
 
 ### Telegram Bot
-- [x] V2 onboarding: race-first, prediction-driven, VDOT path
+- [x] V2 onboarding: race-first, prediction-driven, VO2X path
 - [x] Day selection in onboarding (long run / quality / 2x easy — all button-based)
 - [x] Training day reset via Settings menu
 - [x] Daily session reminders (run_hour based, SA timezone)
 - [x] /today, /plan, /paces, /dashboard, /progress
 - [x] /log (run logging with day / distance / duration / RPE)
-- [x] /lograce (race result logging + VDOT recalculation)
+- [x] /lograce (race result logging + VO2X recalculation)
 - [x] TRUEPACE weather pace adjustment (/location + city selection)
 - [x] Sunday evening weekly game (Crossing mini-app)
-- [x] Level-up VDOT notification (mini-app)
+- [x] Level-up VO2X notification (mini-app)
 - [x] Settings menu with training day reset
 - [x] /reset profile
 

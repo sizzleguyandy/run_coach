@@ -57,7 +57,7 @@ async def cmd_mycode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"🔗 *Your Virgin Race Link Code*\n\n"
         f"`{code}`\n\n"
         f"Open the Virgin Race app → tap *Link Telegram Account* → enter this code.\n\n"
-        f"Your full training plan, VDOT, and race details will sync instantly — "
+        f"Your full training plan, VO2X, and race details will sync instantly — "
         f"no need to re-onboard.",
         parse_mode="Markdown",
     )

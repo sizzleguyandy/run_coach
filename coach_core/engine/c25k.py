@@ -1,7 +1,7 @@
 """
 C25K Engine — Couch to 5K program.
 
-Completely separate from the phase-based system. No VDOT, no volume curves,
+Completely separate from the phase-based system. No VO2X, no volume curves,
 no phases. Rejoins the main system only at the transition point (week 12 → full plan).
 
 Schedule: 12 weeks × 3 sessions/week (Mon/Wed/Fri).
@@ -211,25 +211,25 @@ def compute_transition(
     week11_avg_km: Optional[float],
 ) -> dict:
     """
-    Compute VDOT and estimated_weekly_mileage for transition to full plan.
+    Compute VO2X and estimated_weekly_mileage for transition to full plan.
 
     If a 5k time trial was logged: use the Daniels formula.
     If no time trial: estimate from 30-min continuous run distance in week 11/12.
     """
-    from coach_core.engine.adaptation import calculate_vdot_from_race
+    from coach_core.engine.adaptation import calculate_vo2x_from_race
 
     if time_trial_5k_minutes:
-        vdot = calculate_vdot_from_race(5.0, time_trial_5k_minutes)
+        vo2x = calculate_vo2x_from_race(5.0, time_trial_5k_minutes)
         source = "5k time trial"
     elif week11_avg_km:
         # Extrapolate: if athlete ran week11_avg_km in 30 min, how long for 5k?
         pace_min_per_km = 30.0 / week11_avg_km
         estimated_5k_time = pace_min_per_km * 5.0
-        vdot = calculate_vdot_from_race(5.0, estimated_5k_time)
+        vo2x = calculate_vo2x_from_race(5.0, estimated_5k_time)
         source = f"estimated from {week11_avg_km}km/30min pace"
     else:
-        # Fallback: assign a conservative beginner VDOT
-        vdot = 32.0
+        # Fallback: assign a conservative beginner VO2X
+        vo2x = 32.0
         source = "beginner default"
 
     # Estimated weekly mileage: 3 sessions × est_km + some walking
@@ -237,11 +237,11 @@ def compute_transition(
     estimated_weekly_km = round(est_session_km * 3 * 0.85, 1)  # conservative
 
     return {
-        "vdot": round(vdot, 1),
+        "vo2x": round(vo2x, 1),
         "estimated_weekly_km": estimated_weekly_km,
         "source": source,
         "message": (
-            f"🎉 C25K complete! Your VDOT is estimated at {round(vdot, 1)} "
+            f"🎉 C25K complete! Your VO2X is estimated at {round(vo2x, 1)} "
             f"(based on {source}).\n\n"
             "You can run a 5K — now let's race one. 🏃\n"
             "Thousands of South Africans do parkrun every Saturday morning — "

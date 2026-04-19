@@ -2,14 +2,14 @@
 Race Knowledge RAG Engine.
 
 Loads race-specific knowledge documents and generates personalised
-checkpoint/split guidance based on the athlete's VDOT.
+checkpoint/split guidance based on the athlete's VO2X.
 
 Usage:
     from coach_core.engine.race_knowledge import get_race_context
 
     context = get_race_context(
         preset_race_id="comrades",
-        vdot=39.0,
+        vo2x=39.0,
         race_date_str="2026-06-14",
     )
     # Returns a dict with:
@@ -85,7 +85,7 @@ def load_race_knowledge(preset_race_id: str) -> Optional[str]:
     return path.read_text(encoding="utf-8")
 
 
-# ── VDOT → race time helpers ──────────────────────────────────────────────────
+# ── VO2X → race time helpers ──────────────────────────────────────────────────
 
 _A = 0.000104
 _B = 0.182258
@@ -93,8 +93,8 @@ _C_OFFSET = 4.60
 _PCT_M = 0.810
 
 
-def _vdot_to_marathon_minutes(vdot: float) -> float:
-    v = (-_B + math.sqrt(_B * _B + 4.0 * _A * (vdot * _PCT_M + _C_OFFSET))) / (2.0 * _A)
+def _vo2x_to_marathon_minutes(vo2x: float) -> float:
+    v = (-_B + math.sqrt(_B * _B + 4.0 * _A * (vo2x * _PCT_M + _C_OFFSET))) / (2.0 * _A)
     return 42195.0 / v
 
 
@@ -185,13 +185,13 @@ def _comrades_medal(minutes: float) -> str:
     return "Finisher"
 
 
-def _comrades_checkpoints(vdot: float, race_date_str: Optional[str]) -> str:
+def _comrades_checkpoints(vo2x: float, race_date_str: Optional[str]) -> str:
     """
-    Return personalised Comrades checkpoint splits for the given VDOT.
+    Return personalised Comrades checkpoint splits for the given VO2X.
     Uses effort-fraction model with a 5% buffer below cut-offs.
     """
     is_down = _comrades_is_down(race_date_str)
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     direction_factor = 1.0 if is_down else 1.08
     ratio = 90.0 / 42.2
     predicted_min = marathon_min * (ratio ** 1.12) * direction_factor
@@ -269,9 +269,9 @@ def _two_oceans_medal(minutes: float) -> str:
     return "Finisher"
 
 
-def _two_oceans_checkpoints(vdot: float) -> str:
+def _two_oceans_checkpoints(vo2x: float) -> str:
     """Return personalised Two Oceans checkpoint splits."""
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     ratio = 56.0 / 42.2
     predicted_min = marathon_min * (ratio ** 1.10)
 
@@ -305,8 +305,8 @@ def _two_oceans_checkpoints(vdot: float) -> str:
 
 # ── Cape Town Marathon pacing ─────────────────────────────────────────────────
 
-def _capetown_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _capetown_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     marathon_pace_per_km = marathon_min / 42.195  # min/km
     easy_pace = marathon_pace_per_km * (1 / 0.81) * 0.70  # easy zone
 
@@ -332,8 +332,8 @@ def _capetown_pacing(vdot: float) -> str:
 
 # ── Soweto altitude adjustment ────────────────────────────────────────────────
 
-def _soweto_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _soweto_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     # Soweto altitude adjustment: ~4% for sea-level runners
     adjusted_min = marathon_min * 1.04
     pace_per_km = adjusted_min / 42.195
@@ -357,8 +357,8 @@ def _soweto_pacing(vdot: float) -> str:
 
 # ── Om Die Dam pacing ─────────────────────────────────────────────────────────
 
-def _om_die_dam_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _om_die_dam_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     ratio = 50.0 / 42.2
     predicted_min = marathon_min * (ratio ** 1.08)  # moderate ultra exponent
 
@@ -376,8 +376,8 @@ def _om_die_dam_pacing(vdot: float) -> str:
 
 # ── Durban International Marathon pacing ─────────────────────────────────────
 
-def _durban_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _durban_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     pace = marathon_min / 42.195
     lines = [
         "**Durban International Marathon Personalised Pacing**",
@@ -394,8 +394,8 @@ def _durban_pacing(vdot: float) -> str:
 
 # ── Knysna Forest Marathon pacing ─────────────────────────────────────────────
 
-def _knysna_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _knysna_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     # Trail factor: 700m gain, technical terrain — roughly 20% slower than road
     predicted_min = marathon_min * 1.22
     lines = [
@@ -426,8 +426,8 @@ def _fmt_pace(min_per_km: float) -> str:
     return f"{m}:{s:02d}/km"
 
 
-def _london_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _london_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     pace = marathon_min / 42.195
     lines = [
         "**London Marathon Personalised Pacing**",
@@ -444,8 +444,8 @@ def _london_pacing(vdot: float) -> str:
     return "\n".join(lines)
 
 
-def _manchester_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _manchester_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     pace = marathon_min / 42.195
     lines = [
         "**Manchester Marathon Personalised Pacing**",
@@ -461,8 +461,8 @@ def _manchester_pacing(vdot: float) -> str:
     return "\n".join(lines)
 
 
-def _brighton_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _brighton_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     pace = marathon_min / 42.195
     lines = [
         "**Brighton Marathon Personalised Pacing**",
@@ -477,8 +477,8 @@ def _brighton_pacing(vdot: float) -> str:
     return "\n".join(lines)
 
 
-def _edinburgh_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _edinburgh_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     # Edinburgh has 240m elevation — slight adjustment
     adjusted_min = marathon_min * 1.02
     pace = adjusted_min / 42.195
@@ -496,8 +496,8 @@ def _edinburgh_pacing(vdot: float) -> str:
     return "\n".join(lines)
 
 
-def _loch_ness_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _loch_ness_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     # Loch Ness: 349m gain, net downhill but rolling — ~3% effort penalty
     adjusted_min = marathon_min * 1.03
     pace = adjusted_min / 42.195
@@ -515,8 +515,8 @@ def _loch_ness_pacing(vdot: float) -> str:
     return "\n".join(lines)
 
 
-def _yorkshire_pacing(vdot: float) -> str:
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+def _yorkshire_pacing(vo2x: float) -> str:
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
     pace = marathon_min / 42.195
     lines = [
         "**Yorkshire Marathon Personalised Pacing**",
@@ -538,47 +538,47 @@ def _yorkshire_pacing(vdot: float) -> str:
 
 def get_race_context(
     preset_race_id: Optional[str],
-    vdot: Optional[float],
+    vo2x: Optional[float],
     race_date_str: Optional[str] = None,
 ) -> dict:
     """
     Return a dict with:
       - knowledge_text: full race markdown (empty string if no file)
-      - checkpoint_summary: personalised split guidance (empty string if no VDOT)
+      - checkpoint_summary: personalised split guidance (empty string if no VO2X)
       - race_display_name: human-readable race name
     """
     display_name = RACE_DISPLAY_NAMES.get(preset_race_id or "", "your race")
     knowledge_text = load_race_knowledge(preset_race_id or "") or ""
     checkpoint_summary = ""
 
-    if vdot and vdot > 0 and preset_race_id:
+    if vo2x and vo2x > 0 and preset_race_id:
         try:
             # SA races
             if preset_race_id == "comrades_marathon":
-                checkpoint_summary = _comrades_checkpoints(vdot, race_date_str)
+                checkpoint_summary = _comrades_checkpoints(vo2x, race_date_str)
             elif preset_race_id == "two_oceans_marathon":
-                checkpoint_summary = _two_oceans_checkpoints(vdot)
+                checkpoint_summary = _two_oceans_checkpoints(vo2x)
             elif preset_race_id == "cape_town_marathon":
-                checkpoint_summary = _capetown_pacing(vdot)
+                checkpoint_summary = _capetown_pacing(vo2x)
             elif preset_race_id == "soweto_marathon":
-                checkpoint_summary = _soweto_pacing(vdot)
+                checkpoint_summary = _soweto_pacing(vo2x)
             elif preset_race_id == "durban_international_marathon":
-                checkpoint_summary = _durban_pacing(vdot)
+                checkpoint_summary = _durban_pacing(vo2x)
             elif preset_race_id == "knysna_forest_marathon":
-                checkpoint_summary = _knysna_pacing(vdot)
+                checkpoint_summary = _knysna_pacing(vo2x)
             # UK races
             elif preset_race_id == "london_marathon":
-                checkpoint_summary = _london_pacing(vdot)
+                checkpoint_summary = _london_pacing(vo2x)
             elif preset_race_id == "manchester_marathon":
-                checkpoint_summary = _manchester_pacing(vdot)
+                checkpoint_summary = _manchester_pacing(vo2x)
             elif preset_race_id == "brighton_marathon":
-                checkpoint_summary = _brighton_pacing(vdot)
+                checkpoint_summary = _brighton_pacing(vo2x)
             elif preset_race_id == "edinburgh_marathon":
-                checkpoint_summary = _edinburgh_pacing(vdot)
+                checkpoint_summary = _edinburgh_pacing(vo2x)
             elif preset_race_id == "yorkshire_marathon":
-                checkpoint_summary = _yorkshire_pacing(vdot)
+                checkpoint_summary = _yorkshire_pacing(vo2x)
             elif preset_race_id == "loch_ness_marathon":
-                checkpoint_summary = _loch_ness_pacing(vdot)
+                checkpoint_summary = _loch_ness_pacing(vo2x)
         except Exception:
             checkpoint_summary = ""
 

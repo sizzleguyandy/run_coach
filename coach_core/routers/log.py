@@ -6,8 +6,8 @@ from datetime import date
 from typing import Optional
 
 from coach_core.database import get_db
-from coach_core.models import Athlete, RunLog, VDOTHistory
-from coach_core.engine.adaptation import adapt_next_week, WeekSummary, calculate_vdot_from_race
+from coach_core.models import Athlete, RunLog, VO2XHistory
+from coach_core.engine.adaptation import adapt_next_week, WeekSummary, calculate_vo2x_from_race
 from coach_core.engine.plan_builder import build_full_plan, current_week_number
 
 router = APIRouter(prefix="/log", tags=["log"])
@@ -22,7 +22,7 @@ class RunLogCreate(BaseModel):
     duration_minutes: Optional[float] = None
     rpe: Optional[int] = None
     notes: Optional[str] = None
-    # v1.6: pace tracking (treadmill auto-log + pace-gap VDOT check)
+    # v1.6: pace tracking (treadmill auto-log + pace-gap VO2X check)
     prescribed_pace_min_per_km: Optional[float] = None
     source: Optional[str] = "manual"   # "manual" | "treadmill"
 
@@ -32,7 +32,7 @@ class RaceResult(BaseModel):
     race_distance_km: float
     finish_time_minutes: float
     race_date: date
-    force: bool = False   # set True to accept a VDOT drop > 3 points
+    force: bool = False   # set True to accept a VO2X drop > 3 points
 
 
 @router.post("/run", status_code=201)
@@ -97,11 +97,83 @@ async def get_week_summary(telegram_id: str, week_number: int, db: AsyncSession 
     }
 
 
+@router.get("/{telegram_id}/month/{year}/{month}/summary")
+async def get_month_summary(telegram_id: str, year: int, month: int, db: AsyncSession = Depends(get_db)):
+    """
+    Return total running volume and session count for a calendar month.
+    Sums all RunLog entries whose logged date falls within year/month.
+    """
+    from datetime import date as date_type
+    import calendar as cal_module
+
+    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    athlete = result.scalar_one_or_none()
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found.")
+
+    # Determine the week numbers that overlap this calendar month so we can
+    # query efficiently without a date column on RunLog.
+    # We resolve by checking the athlete's start_date and mapping week → dates.
+    start_date = athlete.start_date  # date object
+    if not start_date:
+        return {"year": year, "month": month, "actual_volume_km": 0.0, "sessions_logged": 0, "avg_rpe": None, "weeks": []}
+
+    first_day = date_type(year, month, 1)
+    last_day  = date_type(year, month, cal_module.monthrange(year, month)[1])
+
+    # Find which plan week numbers cover this month
+    def week_num_for_date(d):
+        delta = (d - start_date).days
+        if delta < 0:
+            return None
+        return delta // 7 + 1
+
+    first_week = week_num_for_date(first_day)
+    last_week  = week_num_for_date(last_day)
+    if first_week is None:
+        first_week = 1
+    if last_week is None:
+        last_week = first_week
+
+    week_nums = list(range(first_week, last_week + 1))
+
+    logs_result = await db.execute(
+        select(RunLog).where(
+            RunLog.athlete_id == athlete.id,
+            RunLog.week_number.in_(week_nums),
+        )
+    )
+    logs = logs_result.scalars().all()
+
+    total_km   = round(sum(l.actual_distance_km for l in logs), 1)
+    rpe_values = [l.rpe for l in logs if l.rpe is not None]
+    avg_rpe    = round(sum(rpe_values) / len(rpe_values), 1) if rpe_values else None
+
+    # Per-week breakdown
+    week_breakdown = []
+    for wn in week_nums:
+        wk_logs = [l for l in logs if l.week_number == wn]
+        week_breakdown.append({
+            "week_number": wn,
+            "actual_volume_km": round(sum(l.actual_distance_km for l in wk_logs), 1),
+            "sessions_logged": len(wk_logs),
+        })
+
+    return {
+        "year": year,
+        "month": month,
+        "actual_volume_km": total_km,
+        "sessions_logged": len(logs),
+        "avg_rpe": avg_rpe,
+        "weeks": week_breakdown,
+    }
+
+
 @router.post("/{telegram_id}/adapt")
 async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSession = Depends(get_db)):
     """
     Trigger closed-loop adaptation after completing a week.
-    Returns adjusted volume + VDOT for next week, and saves updated VDOT if changed.
+    Returns adjusted volume + VO2X for next week, and saves updated VO2X if changed.
     """
     result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
     athlete = result.scalar_one_or_none()
@@ -123,7 +195,7 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
     # Get planned volume for week
     plan = build_full_plan(
         current_weekly_mileage=athlete.current_weekly_mileage,
-        vdot=athlete.vdot,
+        vo2x=athlete.vo2x,
         race_distance=athlete.race_distance,
         race_date=athlete.race_date,
         start_date=athlete.start_date,
@@ -147,19 +219,19 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
         sessions_completed=len(logs),
     )
 
-    adj_volume, new_vdot, notes = adapt_next_week(
+    adj_volume, new_vo2x, notes = adapt_next_week(
         planned_next_volume=next_planned or planned_volume,
         summary=summary,
-        current_vdot=athlete.vdot,
+        current_vo2x=athlete.vo2x,
         training_profile=athlete.training_profile or "conservative",
     )
 
-    # Persist VDOT change if updated
-    if new_vdot != athlete.vdot:
-        athlete.vdot = new_vdot
-        db.add(VDOTHistory(
+    # Persist VO2X change if updated
+    if new_vo2x != athlete.vo2x:
+        athlete.vo2x = new_vo2x
+        db.add(VO2XHistory(
             athlete_id=athlete.id,
-            vdot=new_vdot,
+            vo2x=new_vo2x,
             source="adjusted",
             effective_date=date.today(),
         ))
@@ -183,9 +255,9 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
 
     await db.commit()
 
-    # ── VDOT level-up Mini App notification ───────────────────────────
-    _vdot_before = round(athlete.vdot - (new_vdot - athlete.vdot), 1) if new_vdot != athlete.vdot else athlete.vdot
-    if new_vdot != athlete.vdot and int(new_vdot) > int(_vdot_before):
+    # ── VO2X level-up Mini App notification ───────────────────────────
+    _vo2x_before = round(athlete.vo2x - (new_vo2x - athlete.vo2x), 1) if new_vo2x != athlete.vo2x else athlete.vo2x
+    if new_vo2x != athlete.vo2x and int(new_vo2x) > int(_vo2x_before):
         try:
             from telegram_bot.handlers.reminder import send_levelup_notification
             from telegram_bot.config import TELEGRAM_TOKEN
@@ -193,7 +265,7 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
             import asyncio as _aio
             _aio.create_task(send_levelup_notification(
                 Bot(token=TELEGRAM_TOKEN), telegram_id,
-                athlete.name, _vdot_before, new_vdot, "adjusted",
+                athlete.name, _vo2x_before, new_vo2x, "adjusted",
             ))
         except Exception:
             pass
@@ -212,8 +284,8 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
         "actual_volume": round(actual_volume, 1),
         "compliance_pct": round(compliance_ratio * 100, 1),
         "adjusted_next_week_volume": adj_volume,
-        "vdot_before": athlete.vdot if new_vdot == athlete.vdot else round(athlete.vdot - (new_vdot - athlete.vdot), 1),
-        "vdot_after": new_vdot,
+        "vo2x_before": athlete.vo2x if new_vo2x == athlete.vo2x else round(athlete.vo2x - (new_vo2x - athlete.vo2x), 1),
+        "vo2x_after": new_vo2x,
         "coaching_notes": all_notes,
         "streak_weeks": athlete.streak_weeks,
         "total_badges": athlete.total_badges or 0,
@@ -221,72 +293,72 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
     }
 
 
-# How many VDOT points a race result may drop without needing force=True
-VDOT_DROP_THRESHOLD = 3.0
+# How many VO2X points a race result may drop without needing force=True
+VO2X_DROP_THRESHOLD = 3.0
 
 @router.post("/race")
 async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
     """
-    Log a race result and update VDOT with a guard against unexpectedly large drops.
+    Log a race result and update VO2X with a guard against unexpectedly large drops.
 
     Guard rules:
       new >= old           → accept immediately (improvement)
       old - new <= 3 pts   → accept with a caution note (rough race, still valid)
       old - new >  3 pts   → reject unless force=True is set
-                             Returns vdot_updated=False + coaching message
+                             Returns vo2x_updated=False + coaching message
 
-    force=True bypasses the guard and always writes the new VDOT.
+    force=True bypasses the guard and always writes the new VO2X.
     Intended for confirmed poor performances (illness, wrong distance, etc.).
-    All results are stored in VDOTHistory regardless of whether they update the live VDOT.
+    All results are stored in VO2XHistory regardless of whether they update the live VO2X.
     """
     result = await db.execute(select(Athlete).where(Athlete.telegram_id == data.telegram_id))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
 
-    new_vdot = calculate_vdot_from_race(data.race_distance_km, data.finish_time_minutes)
-    old_vdot = athlete.vdot or new_vdot   # no prior VDOT (C25K athlete) — always accept
-    drop = old_vdot - new_vdot
-    vdot_updated = False
+    new_vo2x = calculate_vo2x_from_race(data.race_distance_km, data.finish_time_minutes)
+    old_vo2x = athlete.vo2x or new_vo2x   # no prior VO2X (C25K athlete) — always accept
+    drop = old_vo2x - new_vo2x
+    vo2x_updated = False
     message = ""
     coaching_note = ""
 
-    # Check whether the current VDOT was boosted by the adaptation engine
+    # Check whether the current VO2X was boosted by the adaptation engine
     # (i.e. the most recent prior entry is an "adjusted" source above the initial baseline)
     nudge_context = ""
     try:
         from sqlalchemy import desc as _desc
         hist_result = await db.execute(
-            select(VDOTHistory)
-            .where(VDOTHistory.athlete_id == athlete.id)
-            .order_by(_desc(VDOTHistory.effective_date))
+            select(VO2XHistory)
+            .where(VO2XHistory.athlete_id == athlete.id)
+            .order_by(_desc(VO2XHistory.effective_date))
             .limit(5)
         )
         history = hist_result.scalars().all()
-        # If the most recent VDOT change was an adaptation nudge, note that
+        # If the most recent VO2X change was an adaptation nudge, note that
         adjusted_entries = [h for h in history if h.source == "adjusted"]
-        if adjusted_entries and adjusted_entries[0].vdot >= old_vdot:
+        if adjusted_entries and adjusted_entries[0].vo2x >= old_vo2x:
             nudge_context = (
-                " Your VDOT had been nudged up by the weekly adaptation engine — "
+                " Your VO2X had been nudged up by the weekly adaptation engine — "
                 "this race result recalibrates it back to a race-validated baseline."
             )
     except Exception:
         pass  # never block race logging on a history query failure
 
-    if new_vdot >= old_vdot:
+    if new_vo2x >= old_vo2x:
         # Improvement or equal — always accept
-        vdot_updated = True
-        gain = round(new_vdot - old_vdot, 1)
+        vo2x_updated = True
+        gain = round(new_vo2x - old_vo2x, 1)
         message = (
-            f"🎉 New PR! VDOT {old_vdot} → {new_vdot} (+{gain}). Paces updated."
+            f"🎉 New PR! VO2X {old_vo2x} → {new_vo2x} (+{gain}). Paces updated."
             if gain > 0 else
-            f"VDOT unchanged at {new_vdot}. Consistent performance."
+            f"VO2X unchanged at {new_vo2x}. Consistent performance."
         )
 
-    elif drop <= VDOT_DROP_THRESHOLD:
+    elif drop <= VO2X_DROP_THRESHOLD:
         # Small drop — accept, add caution note
-        vdot_updated = True
-        message = f"VDOT {old_vdot} → {new_vdot} (−{round(drop, 1)}). Paces updated."
+        vo2x_updated = True
+        message = f"VO2X {old_vo2x} → {new_vo2x} (−{round(drop, 1)}). Paces updated."
         coaching_note = (
             "Small dip — could be heat, fatigue, or a tough course. "
             "Your training paces will be recalculated to match."
@@ -296,8 +368,8 @@ async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
 
     elif data.force:
         # Large drop but athlete confirmed — accept
-        vdot_updated = True
-        message = f"VDOT {old_vdot} → {new_vdot} (−{round(drop, 1)}) — confirmed by you. Paces updated."
+        vo2x_updated = True
+        message = f"VO2X {old_vo2x} → {new_vo2x} (−{round(drop, 1)}) — confirmed by you. Paces updated."
         coaching_note = (
             "Large drop accepted. Training paces have been adjusted accordingly."
             + nudge_context +
@@ -306,9 +378,9 @@ async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
 
     else:
         # Large drop, no confirmation — hold and ask
-        vdot_updated = False
+        vo2x_updated = False
         message = (
-            f"⚠️ This result would drop your VDOT from {old_vdot} → {new_vdot} "
+            f"⚠️ This result would drop your VO2X from {old_vo2x} → {new_vo2x} "
             f"(−{round(drop, 1)} points). That's a significant change."
         )
         coaching_note = (
@@ -318,22 +390,22 @@ async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
             "Otherwise, ignore this result and continue with your current paces."
         )
 
-    # Always write to VDOTHistory for the record
-    db.add(VDOTHistory(
+    # Always write to VO2XHistory for the record
+    db.add(VO2XHistory(
         athlete_id=athlete.id,
-        vdot=new_vdot,
+        vo2x=new_vo2x,
         source="race",
         effective_date=data.race_date,
     ))
 
-    if vdot_updated:
-        athlete.vdot = new_vdot
+    if vo2x_updated:
+        athlete.vo2x = new_vo2x
         await db.commit()
     else:
         await db.commit()   # still save the history entry
 
-    # ── VDOT level-up notification ──────────────────────────────────────
-    if vdot_updated and new_vdot > old_vdot and int(new_vdot) > int(old_vdot):
+    # ── VO2X level-up notification ──────────────────────────────────────
+    if vo2x_updated and new_vo2x > old_vo2x and int(new_vo2x) > int(old_vo2x):
         try:
             from telegram_bot.handlers.reminder import send_levelup_notification
             from telegram_bot.config import TELEGRAM_TOKEN
@@ -341,15 +413,15 @@ async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
             import asyncio as _aio
             _aio.create_task(send_levelup_notification(
                 Bot(token=TELEGRAM_TOKEN), data.telegram_id,
-                athlete.name, old_vdot, new_vdot, "race",
+                athlete.name, old_vo2x, new_vo2x, "race",
             ))
         except Exception:
             pass
 
     return {
-        "old_vdot": old_vdot,
-        "new_vdot": new_vdot,
-        "vdot_updated": vdot_updated,
+        "old_vo2x": old_vo2x,
+        "new_vo2x": new_vo2x,
+        "vo2x_updated": vo2x_updated,
         "drop_points": round(drop, 1) if drop > 0 else 0,
         "message": message,
         "coaching_note": coaching_note,
@@ -416,7 +488,7 @@ async def adapt_c25k(telegram_id: str, week_number: int, db: AsyncSession = Depe
 async def log_c25k_timetrial(data: C25KTimeTrial, db: AsyncSession = Depends(get_db)):
     """
     Log a 5k time trial result at end of C25K.
-    Computes VDOT, updates athlete record, and returns transition data.
+    Computes VO2X, updates athlete record, and returns transition data.
     """
     result = await db.execute(select(Athlete).where(Athlete.telegram_id == data.telegram_id))
     athlete = result.scalar_one_or_none()
@@ -429,13 +501,13 @@ async def log_c25k_timetrial(data: C25KTimeTrial, db: AsyncSession = Depends(get
         week11_avg_km=data.week_run_km,
     )
 
-    athlete.vdot = transition["vdot"]
+    athlete.vo2x = transition["vo2x"]
     athlete.current_weekly_mileage = transition["estimated_weekly_km"]
     athlete.c25k_completed = True
 
-    db.add(VDOTHistory(
+    db.add(VO2XHistory(
         athlete_id=athlete.id,
-        vdot=transition["vdot"],
+        vo2x=transition["vo2x"],
         source="c25k_graduation",
         effective_date=date.today(),
     ))

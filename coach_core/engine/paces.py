@@ -2,10 +2,10 @@
 Daniels training pace calculator + race time prediction.
 
 Paces are computed directly from the Daniels velocity formula rather than
-a hard-coded lookup table. This guarantees correctness across the full VDOT
+a hard-coded lookup table. This guarantees correctness across the full VO2X
 range and matches the reference Daniels Running Formula values exactly.
 
-Intensity percentages (% of VDOT):
+Intensity percentages (% of VO2X):
   E (Easy):       70%   — comfortable, conversational effort
   M (Marathon):   81%   — goal marathon effort
   T (Threshold):  88%   — comfortably hard, ~1 hour race effort
@@ -19,10 +19,10 @@ Inverted to find v for a target VO2:
   v = (-0.182258 + sqrt(0.182258² + 4×0.000104×(VO2+4.60))) / (2×0.000104)
 
 Verified against published Daniels values (4th edition):
-  VDOT 39: E=6:14, M=5:33, T=5:12, I=4:47, R=4:33 /km  ✓
+  VO2X 39: E=6:14, M=5:33, T=5:12, I=4:47, R=4:33 /km  ✓
 
 Race prediction:
-  Standard distances (5k–marathon): Daniels VDOT velocity formula
+  Standard distances (5k–marathon): Daniels VO2X velocity formula
   Ultra distances: Modified Riegel formula from marathon baseline
     T2 = T_marathon × (D2 / 42.2) ^ exponent
     Exponent 1.10 for 56km (Two Oceans), 1.12 for 90km (Comrades)
@@ -51,7 +51,7 @@ class RacePrediction:
     medal:          str | None   # Comrades only
 
 
-# Daniels intensity levels as % of VDOT
+# Daniels intensity levels as % of VO2X
 _PCT_E = 0.700
 _PCT_M = 0.810
 _PCT_T = 0.880
@@ -78,22 +78,22 @@ COMRADES_MEDALS: dict[str, int] = {
 }
 
 
-def _pace_for_pct(vdot: float, pct: float) -> float:
-    vo2_target = vdot * pct
+def _pace_for_pct(vo2x: float, pct: float) -> float:
+    vo2_target = vo2x * pct
     c = vo2_target + _C_OFFSET
     v = (-_B + math.sqrt(_B * _B + 4.0 * _A * c)) / (2.0 * _A)
     return 1000.0 / v
 
 
-def calculate_paces(vdot: float) -> Paces:
-    """Return all five Daniels training paces for the given VDOT."""
-    vdot = max(30.0, min(85.0, float(vdot)))
+def calculate_paces(vo2x: float) -> Paces:
+    """Return all five Daniels training paces for the given VO2X."""
+    vo2x = max(30.0, min(85.0, float(vo2x)))
     return Paces(
-        easy_min_per_km       = round(_pace_for_pct(vdot, _PCT_E), 4),
-        marathon_min_per_km   = round(_pace_for_pct(vdot, _PCT_M), 4),
-        threshold_min_per_km  = round(_pace_for_pct(vdot, _PCT_T), 4),
-        interval_min_per_km   = round(_pace_for_pct(vdot, _PCT_I), 4),
-        repetition_min_per_km = round(_pace_for_pct(vdot, _PCT_R), 4),
+        easy_min_per_km       = round(_pace_for_pct(vo2x, _PCT_E), 4),
+        marathon_min_per_km   = round(_pace_for_pct(vo2x, _PCT_M), 4),
+        threshold_min_per_km  = round(_pace_for_pct(vo2x, _PCT_T), 4),
+        interval_min_per_km   = round(_pace_for_pct(vo2x, _PCT_I), 4),
+        repetition_min_per_km = round(_pace_for_pct(vo2x, _PCT_R), 4),
     )
 
 
@@ -116,9 +116,9 @@ def _minutes_to_hm(minutes: float) -> str:
     return f"{h}h {m:02d}m"
 
 
-def _vdot_to_marathon_minutes(vdot: float) -> float:
-    """Predict marathon finish time in minutes from VDOT."""
-    v = (-_B + math.sqrt(_B * _B + 4.0 * _A * (vdot * _PCT_M + _C_OFFSET))) / (2.0 * _A)
+def _vo2x_to_marathon_minutes(vo2x: float) -> float:
+    """Predict marathon finish time in minutes from VO2X."""
+    v = (-_B + math.sqrt(_B * _B + 4.0 * _A * (vo2x * _PCT_M + _C_OFFSET))) / (2.0 * _A)
     # Marathon = 42195 metres
     return 42195.0 / v
 
@@ -144,7 +144,7 @@ def _comrades_medal(minutes: float) -> str:
 
 
 def predict_race_time(
-    vdot: float,
+    vo2x: float,
     race_distance: str,
     race_date_str: str | None = None,
 ) -> RacePrediction | None:
@@ -157,11 +157,11 @@ def predict_race_time(
       ultra_90 / comrades:   exponent 1.12, spread ±5%,
                               direction factor applied for up/down run
     """
-    vdot = max(30.0, min(85.0, float(vdot)))
+    vo2x = max(30.0, min(85.0, float(vo2x)))
 
     # ── Standard distances ────────────────────────────────────────────────
     def _daniels_time(pct: float, distance_m: float) -> float:
-        v = (-_B + math.sqrt(_B * _B + 4.0 * _A * (vdot * pct + _C_OFFSET))) / (2.0 * _A)
+        v = (-_B + math.sqrt(_B * _B + 4.0 * _A * (vo2x * pct + _C_OFFSET))) / (2.0 * _A)
         return distance_m / v
 
     if race_distance == "5k":
@@ -180,12 +180,12 @@ def predict_race_time(
         return RacePrediction("Half Marathon", mid - spread, mid + spread, None)
 
     if race_distance == "marathon":
-        mid = _vdot_to_marathon_minutes(vdot)
+        mid = _vo2x_to_marathon_minutes(vo2x)
         spread = mid * 0.025
         return RacePrediction("Marathon", mid - spread, mid + spread, None)
 
     # ── Ultra distances — Riegel from marathon baseline ───────────────────
-    marathon_min = _vdot_to_marathon_minutes(vdot)
+    marathon_min = _vo2x_to_marathon_minutes(vo2x)
 
     if race_distance in ("ultra_56", "two_oceans", "ultra"):
         # Two Oceans 56km — exponent 1.10

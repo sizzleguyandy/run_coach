@@ -6,7 +6,7 @@ Flow:
      OR sends /ask command.
   2. Bot replies asking them to type their question.
   3. User's question is bundled with their full TR3D athlete context:
-       - Calculated paces (VDOT), current phase, weeks to race
+       - Calculated paces (VO2X), current phase, weeks to race
        - Precomputed taper timing (start week, date, length)
        - Race-specific knowledge and personalised checkpoint splits
   4. Enriched payload is posted to the N8N_CHAT_WEBHOOK.
@@ -140,13 +140,13 @@ async def _build_payload(telegram_id: str, question: str) -> dict:
             payload["training_profile"] = athlete.get("training_profile", "conservative")
             payload["race_date"]        = str(athlete.get("race_date") or "")
 
-            # Paces from VDOT
-            vdot = athlete.get("vdot")
-            if vdot:
+            # Paces from VO2X
+            vo2x = athlete.get("vo2x")
+            if vo2x:
                 try:
                     from coach_core.engine.paces import calculate_paces, format_pace
-                    p = calculate_paces(vdot)
-                    payload["vdot"]           = vdot
+                    p = calculate_paces(vo2x)
+                    payload["vo2x"]           = vo2x
                     payload["easy_pace"]      = format_pace(p.easy_min_per_km)
                     payload["marathon_pace"]  = format_pace(p.marathon_min_per_km)
                     payload["threshold_pace"] = format_pace(p.threshold_min_per_km)
@@ -156,12 +156,12 @@ async def _build_payload(telegram_id: str, question: str) -> dict:
 
             # ── RAG: inject race knowledge + personalised checkpoints ──────
             preset_race_id = athlete.get("preset_race_id")
-            if preset_race_id or vdot:
+            if preset_race_id or vo2x:
                 try:
                     from coach_core.engine.race_knowledge import get_race_context
                     race_ctx = get_race_context(
                         preset_race_id=preset_race_id,
-                        vdot=vdot,
+                        vo2x=vo2x,
                         race_date_str=str(athlete.get("race_date") or ""),
                     )
                     payload["race_knowledge_text"]   = race_ctx["knowledge_text"]

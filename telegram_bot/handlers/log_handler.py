@@ -1,4 +1,4 @@
-from coach_core.engine.adaptation import calculate_vdot_from_race
+from coach_core.engine.adaptation import calculate_vo2x_from_race
 import httpx
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
@@ -250,7 +250,7 @@ RACE_DIST_OPTIONS = {
     "ultra":    None,
 }
 
-_RACE_KEYS = ("race_dist_km", "race_dist_label", "race_time_min", "new_vdot_preview",
+_RACE_KEYS = ("race_dist_km", "race_dist_label", "race_time_min", "new_vo2x_preview",
               "awaiting_custom_dist", "pending_force")
 
 
@@ -271,7 +271,7 @@ async def cmd_lograce(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     keyboard = [["5k", "10k"], ["half", "marathon"], ["ultra / other"]]
     await update.effective_message.reply_text(
         "🏁 <b>Log a race result</b>\n\n"
-        "This will calculate your new VDOT and update your training paces.\n\n"
+        "This will calculate your new VO2X and update your training paces.\n\n"
         "What distance did you race?",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
         parse_mode="HTML",
@@ -344,21 +344,21 @@ async def race_get_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     dist_km = context.user_data["race_dist_km"]
     label   = context.user_data.get("race_dist_label", f"{dist_km} km")
 
-    new_vdot = calculate_vdot_from_race(dist_km, time_min)
+    new_vo2x = calculate_vo2x_from_race(dist_km, time_min)
 
     h = int(time_min // 60)
     m = int(time_min % 60)
     s = round((time_min - int(time_min)) * 60)
     time_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
-    context.user_data["new_vdot_preview"] = new_vdot
+    context.user_data["new_vo2x_preview"] = new_vo2x
 
     keyboard = [["✅ Yes, log it"], ["❌ Cancel"]]
     await update.effective_message.reply_text(
         f"🏁 <b>Race summary</b>\n\n"
         f"Distance:  <b>{label.title()}</b>\n"
         f"Time:      <b>{time_str}</b>\n"
-        f"VDOT:      <b>{new_vdot}</b>\n\n"
+        f"VO2X:      <b>{new_vo2x}</b>\n\n"
         "Log this result and update your training paces?",
         reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True),
         parse_mode="HTML",
@@ -411,7 +411,7 @@ async def race_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if note:
         lines += ["", note]
 
-    if not result.get("vdot_updated") and result.get("drop_points", 0) > 3:
+    if not result.get("vo2x_updated") and result.get("drop_points", 0) > 3:
         lines += [
             "",
             "<i>To accept this result anyway, use /lograce again and confirm.</i>",

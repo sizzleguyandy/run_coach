@@ -15,7 +15,7 @@ class Athlete(Base):
 
     # Full plan fields (nullable for c25k athletes until graduation)
     current_weekly_mileage = Column(Float, nullable=True)
-    vdot = Column(Float, nullable=True)
+    vo2x = Column(Float, nullable=True)
     race_distance = Column(String, nullable=True)
     race_hilliness = Column(String, nullable=False, default="low")
     race_date = Column(Date, nullable=True)
@@ -57,8 +57,8 @@ class Athlete(Base):
     # _get_strength_days() in formatting.py which derives days from the
     # plan, no DB columns required. Re-add when building the full feature.
 
-    # VDOT pace-gap check (v1.6) — frozen pending migration
-    # vdot_pace_check_cooldown_until = Column(Date, nullable=True)
+    # VO2X pace-gap check (v1.6) — frozen pending migration
+    # vo2x_pace_check_cooldown_until = Column(Date, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -76,18 +76,18 @@ class RunLog(Base):
     duration_minutes = Column(Float, nullable=True)
     rpe = Column(Integer, nullable=True)
     notes = Column(String, nullable=True)
-    # v1.6: pace tracking for VDOT pace-gap check
-    prescribed_pace_min_per_km = Column(Float, nullable=True)   # stored at log time; doesn't change with VDOT
+    # v1.6: pace tracking for VO2X pace-gap check
+    prescribed_pace_min_per_km = Column(Float, nullable=True)   # stored at log time; doesn't change with VO2X
     source = Column(String, nullable=True, default="manual")    # "manual" | "treadmill"
     logged_at = Column(DateTime, default=datetime.utcnow)
 
 
-class VDOTHistory(Base):
-    __tablename__ = "vdot_history"
+class VO2XHistory(Base):
+    __tablename__ = "vo2x_history"
 
     id = Column(Integer, primary_key=True)
     athlete_id = Column(Integer, ForeignKey("athletes.id"), nullable=False)
-    vdot = Column(Float, nullable=False)
+    vo2x = Column(Float, nullable=False)
     source = Column(String, nullable=True)   # "initial"|"race"|"adjusted"|"c25k_graduation"|"pace_adjusted"
     effective_date = Column(Date, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)

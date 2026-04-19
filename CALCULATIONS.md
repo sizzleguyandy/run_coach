@@ -140,23 +140,23 @@ volume = taper_factor × target_peak
 
 ---
 
-## 5. VDOT → Training Paces
+## 5. VO2X → Training Paces
 
-### Formulas (Daniels linear approximation, valid VDOT 30–80)
+### Formulas (Daniels linear approximation, valid VO2X 30–80)
 
 ```
-Easy (E)        = 8.500 − 0.080 × VDOT   (min/km)
-Marathon (M)    = 7.500 − 0.075 × VDOT
-Threshold (T)   = 6.700 − 0.070 × VDOT
-Interval (I)    = 5.800 − 0.060 × VDOT
-Repetition (R)  = 4.800 − 0.050 × VDOT
+Easy (E)        = 8.500 − 0.080 × VO2X   (min/km)
+Marathon (M)    = 7.500 − 0.075 × VO2X
+Threshold (T)   = 6.700 − 0.070 × VO2X
+Interval (I)    = 5.800 − 0.060 × VO2X
+Repetition (R)  = 4.800 − 0.050 × VO2X
 ```
 
-VDOT input is clamped to [30, 80] before calculation.
+VO2X input is clamped to [30, 80] before calculation.
 
 ### Full Pace Table
 
-| VDOT | Easy     | Marathon | Threshold | Interval | Repetition |
+| VO2X | Easy     | Marathon | Threshold | Interval | Repetition |
 |------|----------|----------|-----------|----------|------------|
 | 30   | 6:06 /km | 5:15 /km | 4:36 /km  | 4:00 /km | 3:18 /km   |
 | 35   | 5:42 /km | 4:53 /km | 4:15 /km  | 3:42 /km | 3:03 /km   |
@@ -170,7 +170,7 @@ VDOT input is clamped to [30, 80] before calculation.
 | 75   | 2:30 /km | 1:53 /km | 1:27 /km  | 1:18 /km | 1:03 /km   |
 | 80   | 2:06 /km | 1:30 /km | 1:06 /km  | 1:00 /km | 0:48 /km   |
 
-> ⚠️ **Accuracy note:** These are linear approximations. The Daniels tables use a non-linear curve. At VDOT 70+ the approximation produces paces that are likely too fast. At VDOT 30 the Easy pace (6:06/km) is plausible but you should cross-reference against the actual Daniels tables for your target VDOT range. E.g. Daniels' actual VDOT 50 Easy pace is ~4:37/km vs this model's 4:30/km — a meaningful difference at higher volumes.
+> ⚠️ **Accuracy note:** These are linear approximations. The Daniels tables use a non-linear curve. At VO2X 70+ the approximation produces paces that are likely too fast. At VO2X 30 the Easy pace (6:06/km) is plausible but you should cross-reference against the actual Daniels tables for your target VO2X range. E.g. Daniels' actual VO2X 50 Easy pace is ~4:37/km vs this model's 4:30/km — a meaningful difference at higher volumes.
 
 ---
 
@@ -362,7 +362,7 @@ adjusted_next_volume = planned_next_volume × vol_modifier
 ```
 IF avg_rpe >= 9.0:  vol_modifier = min(vol_modifier, 0.85)  ← hard ceiling
 IF avg_rpe >= 8.5:  vol_modifier = min(vol_modifier, 0.90)
-IF avg_rpe <= 5.0 AND compliance >= 0.95:  vdot += 0.5 (max 80)
+IF avg_rpe <= 5.0 AND compliance >= 0.95:  vo2x += 0.5 (max 80)
 ```
 
 ### Interaction — worst case stacking
@@ -375,7 +375,7 @@ IF avg_rpe <= 5.0 AND compliance >= 0.95:  vdot += 0.5 (max 80)
 
 ---
 
-## 12. VDOT from Race Performance
+## 12. VO2X from Race Performance
 
 ### Daniels VO₂max formula
 
@@ -389,13 +389,13 @@ VO₂       = −4.60 + 0.182258 × v + 0.000104 × v²
           + 0.2989558 × exp(−0.1932605 × t)
           where t = finish_time_minutes
 
-VDOT      = VO₂ / %VO₂max
-VDOT      = clamp(VDOT, 25, 85)
+VO2X      = VO₂ / %VO₂max
+VO2X      = clamp(VO2X, 25, 85)
 ```
 
 ### Verified outputs vs known benchmarks
 
-| Race | Finish Time | Calculated VDOT | Reference VDOT* |
+| Race | Finish Time | Calculated VO2X | Reference VO2X* |
 |------|-------------|-----------------|-----------------|
 | 5k   | 15:00       | 69.6            | ~70             |
 | 5k   | 20:00       | 49.8            | ~50             |
@@ -407,7 +407,7 @@ VDOT      = clamp(VDOT, 25, 85)
 | Mar  | 3:30:00     | 44.6            | ~45             |
 | Mar  | 4:00:00     | 37.9            | ~38             |
 
-*Reference values from Daniels Running Formula tables. Formula output is within ±1 VDOT across the tested range. ✅
+*Reference values from Daniels Running Formula tables. Formula output is within ±1 VO2X across the tested range. ✅
 
 ---
 
@@ -417,6 +417,6 @@ VDOT      = clamp(VDOT, 25, 85)
 |---|-----------------------|------------------------------------------------------------------------------------------|----------|
 | 1 | Phase allocation      | Phase II skipped entirely for plans 13–18 weeks (I → III → IV)                         | Low — may be intentional |
 | 2 | Volume curve          | Phase IV opens at 90% of `target_peak`, not 90% of `actual_peak_reached`. For low-starting athletes this creates a large volume jump (45% in the 40km/wk marathon example) | **High** |
-| 3 | Pace formulas         | Linear approximation diverges from actual Daniels tables at high VDOT (70+). Easy pace may be ~7 sec/km too fast at VDOT 70 | Medium |
+| 3 | Pace formulas         | Linear approximation diverges from actual Daniels tables at high VO2X (70+). Easy pace may be ~7 sec/km too fast at VO2X 70 | Medium |
 | 4 | Marathon long run     | No absolute cap — at 120 km/wk the long run is 36 km. Daniels caps marathon long runs at ~29–32 km | Medium |
 | 5 | Rep count caps        | All phases hit upper rep cap by 60 km/wk. Higher-volume athletes get no additional quality volume | Low — conservative |

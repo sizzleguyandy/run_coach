@@ -7,7 +7,7 @@ SA hour and sends them their session for the day.
 
 Additionally:
   Sunday evening (20:00 SA) — sends the crossing game to all athletes
-  This is called externally from log.py when VDOT increases (level-up screen)
+  This is called externally from log.py when VO2X increases (level-up screen)
 """
 from __future__ import annotations
 
@@ -114,10 +114,10 @@ def crossing_url(
     return f"{MINI_APP_BASE}/crossing.html?{params}"
 
 
-def levelup_url(vdot_old: float, vdot_new: float, name: str, source: str) -> str:
+def levelup_url(vo2x_old: float, vo2x_new: float, name: str, source: str) -> str:
     params = urlencode({
-        "from":   vdot_old,
-        "to":     vdot_new,
+        "from":   vo2x_old,
+        "to":     vo2x_new,
         "name":   name,
         "source": source,
     })
@@ -245,35 +245,35 @@ def _build_sunday_game_message(
     return msg, keyboard
 
 
-# ── VDOT level-up trigger (called from log.py) ────────────────────────────────
+# ── VO2X level-up trigger (called from log.py) ────────────────────────────────
 
 async def send_levelup_notification(
     bot: Bot,
     telegram_id: str,
     name: str,
-    vdot_old: float,
-    vdot_new: float,
+    vo2x_old: float,
+    vo2x_new: float,
     source: str = "adjusted",
 ) -> None:
     """
-    Send the level-up Mini App button when VDOT crosses an integer boundary.
+    Send the level-up Mini App button when VO2X crosses an integer boundary.
     e.g. 39.8 → 40.1 triggers it; 39.1 → 39.8 does not.
     """
-    if int(vdot_new) <= int(vdot_old):
+    if int(vo2x_new) <= int(vo2x_old):
         return   # no integer boundary crossed — no notification
 
-    url = levelup_url(vdot_old, vdot_new, name, source)
+    url = levelup_url(vo2x_old, vo2x_new, name, source)
 
     source_label = "your race result" if source == "race" else "your training consistency"
     msg = (
-        f"⚡ VDOT {int(vdot_old)} → {int(vdot_new)} — you're getting faster, {name}!\n\n"
+        f"⚡ VO2X {int(vo2x_old)} → {int(vo2x_new)} — you're getting faster, {name}!\n\n"
         f"Based on {source_label}.\n"
         "Your training paces have been updated."
     )
 
     keyboard = InlineKeyboardMarkup([[
         InlineKeyboardButton(
-            f"⚡ VDOT {int(vdot_old)} → {int(vdot_new)} — See your upgrade",
+            f"⚡ VO2X {int(vo2x_old)} → {int(vo2x_new)} — See your upgrade",
             web_app={"url": url},
         )
     ]])
@@ -285,7 +285,7 @@ async def send_levelup_notification(
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
-        logger.info(f"Level-up notification sent to {telegram_id}: {vdot_old} → {vdot_new}")
+        logger.info(f"Level-up notification sent to {telegram_id}: {vo2x_old} → {vo2x_new}")
     except Exception as e:
         logger.warning(f"Level-up notification failed for {telegram_id}: {e}")
 
@@ -296,7 +296,7 @@ def _build_race_prep_message(
     athlete: dict,
     milestone_key: str,
     days_to_race: int,
-    vdot: float | None,
+    vo2x: float | None,
     preset_race_id: str | None,
     race_date_str: str | None,
 ) -> str:
@@ -315,7 +315,7 @@ def _build_race_prep_message(
         from coach_core.engine.race_knowledge import get_race_context
         ctx = get_race_context(
             preset_race_id=preset_race_id,
-            vdot=vdot,
+            vo2x=vo2x,
             race_date_str=race_date_str,
         )
         checkpoint_text = ctx.get("checkpoint_summary", "")
@@ -518,14 +518,14 @@ async def _send_race_prep_if_due(
 
         # We have a match — build and send the message
         tid = athlete.get("telegram_id")
-        vdot = athlete.get("vdot")
+        vo2x = athlete.get("vo2x")
         preset_race_id = athlete.get("preset_race_id")
 
         msg = _build_race_prep_message(
             athlete=athlete,
             milestone_key=milestone_key,
             days_to_race=days_to_race,
-            vdot=vdot,
+            vo2x=vo2x,
             preset_race_id=preset_race_id,
             race_date_str=race_date_str,
         )
@@ -646,7 +646,7 @@ async def _send_weekly_reports(bot: Bot, athletes: list[dict]) -> None:
                 "week_number":       week_num,
                 "total_weeks":       total_weeks,
                 "weeks_to_race":     weeks_to_race,
-                "vdot":              athlete.get("vdot"),
+                "vo2x":              athlete.get("vo2x"),
                 "planned_volume_km": round(planned_km, 1),
                 "actual_volume_km":  round(actual_km, 1),
                 "compliance_pct":    compliance_pct,
@@ -759,7 +759,7 @@ async def _send_monthly_reports(bot: Bot, athletes: list[dict]) -> None:
                 "current_week":       week_num,
                 "total_weeks":        total_weeks,
                 "weeks_to_race":      weeks_to_race,
-                "vdot":               athlete.get("vdot"),
+                "vo2x":               athlete.get("vo2x"),
                 "month_summary":      month_summary,
                 "total_actual_km":    round(total_actual, 1),
                 "total_planned_km":   round(total_planned, 1) if total_planned else None,
@@ -962,7 +962,7 @@ async def _send_race_eve_reports(bot, athletes: list[dict]) -> None:
                         "marathon": 42.195, "ultra_56": 56.0, "ultra_90": 90.0,
                     }.get(race_dist_str, 42.195)
 
-                vdot = athlete.get("vdot") or 35.0
+                vo2x = athlete.get("vo2x") or 35.0
                 weekly_km  = athlete.get("current_weekly_mileage") or 30.0
                 longest_km = weekly_km * 0.4
 
@@ -971,7 +971,7 @@ async def _send_race_eve_reports(bot, athletes: list[dict]) -> None:
                     race_distance_km = dist_km,
                     hill_factor      = hill_factor,
                     race_date        = date.today(),  # race is tomorrow — use today as proxy
-                    direct_vdot      = vdot,
+                    direct_vo2x      = vo2x,
                     weekly_mileage_km = weekly_km,
                     longest_run_km   = longest_km,
                     plan_type        = athlete.get("training_profile") or "conservative",
@@ -1004,7 +1004,7 @@ async def _send_race_eve_reports(bot, athletes: list[dict]) -> None:
                 from coach_core.engine.race_knowledge import get_race_context
                 ctx = get_race_context(
                     preset_race_id = athlete.get("preset_race_id"),
-                    vdot           = athlete.get("vdot"),
+                    vo2x           = athlete.get("vo2x"),
                     race_date_str  = race_date_str,
                 )
                 knowledge_text    = ctx.get("knowledge_text", "")
@@ -1033,7 +1033,7 @@ async def _send_race_eve_reports(bot, athletes: list[dict]) -> None:
                 "athlete_name":      athlete.get("name", "Runner"),
                 "race_name":         athlete.get("race_name") or "your race",
                 "race_date":         race_date_str,
-                "vdot":              athlete.get("vdot"),
+                "vo2x":              athlete.get("vo2x"),
                 "predicted_low":     predicted_low,
                 "predicted_high":    predicted_high,
                 "race_distance_km":  dist_km if 'dist_km' in dir() else None,
@@ -1143,7 +1143,7 @@ async def cmd_weekreport(update, context) -> None:
             "week_number":       week_num,
             "total_weeks":       total_weeks,
             "weeks_to_race":     weeks_to_race,
-            "vdot":              athlete.get("vdot"),
+            "vo2x":              athlete.get("vo2x"),
             "planned_volume_km": round(planned_km, 1),
             "actual_volume_km":  round(actual_km, 1),
             "compliance_pct":    compliance_pct,
@@ -1261,7 +1261,7 @@ async def cmd_monthreport(update, context) -> None:
             "current_week":       week_num,
             "total_weeks":        total_weeks,
             "weeks_to_race":      weeks_to_race,
-            "vdot":               athlete.get("vdot"),
+            "vo2x":               athlete.get("vo2x"),
             "month_summary":      month_summary,
             "total_actual_km":    round(total_actual, 1),
             "total_planned_km":   round(total_planned, 1) if total_planned else None,
@@ -1362,7 +1362,7 @@ async def cmd_racereport(update, context) -> None:
                 dist_km = RACE_PRESETS[preset_id]["exact_distance_km"]
             else:
                 dist_km = {"5k":5.0,"10k":10.0,"half":21.0975,"marathon":42.195,"ultra_56":56.0,"ultra_90":90.0}.get(race_dist_str, 42.195)
-            vdot       = athlete.get("vdot") or 35.0
+            vo2x       = athlete.get("vo2x") or 35.0
             weekly_km  = athlete.get("current_weekly_mileage") or 30.0
             from datetime import date as _date
             result = predict(PredictionInput(
@@ -1370,7 +1370,7 @@ async def cmd_racereport(update, context) -> None:
                 race_distance_km = dist_km,
                 hill_factor      = hill_factor,
                 race_date        = _date.today(),
-                direct_vdot      = vdot,
+                direct_vo2x      = vo2x,
                 weekly_mileage_km = weekly_km,
                 longest_run_km   = weekly_km * 0.4,
                 plan_type        = athlete.get("training_profile") or "conservative",
@@ -1402,7 +1402,7 @@ async def cmd_racereport(update, context) -> None:
             from coach_core.engine.race_knowledge import get_race_context
             ctx = get_race_context(
                 preset_race_id=athlete.get("preset_race_id"),
-                vdot=athlete.get("vdot"),
+                vo2x=athlete.get("vo2x"),
                 race_date_str=race_date_str,
             )
             knowledge_text    = ctx.get("knowledge_text", "")
@@ -1427,7 +1427,7 @@ async def cmd_racereport(update, context) -> None:
             "athlete_name":        athlete.get("name", "Runner"),
             "race_name":           athlete.get("race_name") or "your race",
             "race_date":           race_date_str,
-            "vdot":                athlete.get("vdot"),
+            "vo2x":                athlete.get("vo2x"),
             "predicted_low":       predicted_low,
             "predicted_high":      predicted_high,
             "race_distance_km":    dist_km,
@@ -1539,12 +1539,12 @@ async def _send_strength_reminders(
         logger.info(f"Strength reminders: {sent} sent, {nudged} nudge(s)")
 
 
-# ── VDOT pace-gap check ───────────────────────────────────────────────────────
+# ── VO2X pace-gap check ───────────────────────────────────────────────────────
 
-async def _run_vdot_pace_gap_check(bot: Bot, athletes: list[dict]) -> None:
+async def _run_vo2x_pace_gap_check(bot: Bot, athletes: list[dict]) -> None:
     """
     Daily 06:00 SA check — calls POST /strength/pace-gap-check for each full-plan athlete.
-    Sends a bot message if VDOT was adjusted.
+    Sends a bot message if VO2X was adjusted.
     """
     adjusted = skipped = 0
     for athlete in athletes:
@@ -1572,12 +1572,12 @@ async def _run_vdot_pace_gap_check(bot: Bot, athletes: list[dict]) -> None:
                     await asyncio.sleep(0.04)
                 adjusted += 1
                 logger.info(
-                    f"Pace-gap adjustment: {tid} VDOT {data.get('old_vdot')} → {data.get('new_vdot')}"
+                    f"Pace-gap adjustment: {tid} VO2X {data.get('old_vo2x')} → {data.get('new_vo2x')}"
                 )
         except Exception as e:
             logger.warning(f"Pace-gap check failed for {tid}: {e}")
 
-    logger.info(f"VDOT pace-gap check: {adjusted} adjusted, {skipped} skipped")
+    logger.info(f"VO2X pace-gap check: {adjusted} adjusted, {skipped} skipped")
 
 
 # ── Main scheduler job ────────────────────────────────────────────────────────
@@ -1655,9 +1655,9 @@ async def send_daily_reminders(bot: Bot) -> None:
         logger.info(f"Sunday game: {sent} sent, {failed} failed")
         return   # don't also send daily reminder on Sunday evening
 
-    # ── 06:00 daily — VDOT pace-gap check for all full-plan athletes ────────
+    # ── 06:00 daily — VO2X pace-gap check for all full-plan athletes ────────
     if cur_hour == 6:
-        await _run_vdot_pace_gap_check(bot, athletes)
+        await _run_vo2x_pace_gap_check(bot, athletes)
 
     # ── Strength day reminders — fires 2h before each athlete's run_hour ──
     await _send_strength_reminders(bot, athletes, cur_hour, today_key)

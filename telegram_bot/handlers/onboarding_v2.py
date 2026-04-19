@@ -9,7 +9,7 @@ Flow:
   EXPERIENCE:
     -> "Yes, recent race"  -> RECENT_DIST -> RECENT_TIME -> WEEKLY_KM
     -> "No, beginner"      -> BEGINNER_ABILITY            -> WEEKLY_KM
-    -> "I know my VDOT"    -> VDOT_INPUT                  -> WEEKLY_KM
+    -> "I know my VO2X"    -> VO2X_INPUT                  -> WEEKLY_KM
 
   WEEKLY_KM -> LONGEST_RUN -> PLAN_TYPE
            -> LONG_RUN_DAY -> QUALITY_DAY -> EASY_DAYS
@@ -49,7 +49,7 @@ from coach_core.engine.predictor import (
     PRESET_HILL_FACTORS, HILL_PROFILES, PLAN_TYPE_TO_PROFILE,
     BEGINNER_5K_TIMES, fmt_time, km_to_race_distance,
 )
-from coach_core.engine.adaptation import calculate_vdot_from_race
+from coach_core.engine.adaptation import calculate_vo2x_from_race
 
 # ── Conversation states ────────────────────────────────────────────────────
 (
@@ -67,7 +67,7 @@ from coach_core.engine.adaptation import calculate_vdot_from_race
     LONGEST_RUN,      # 11
     PLAN_TYPE,        # 12
     LOCATION,         # 13
-    VDOT_INPUT,       # 14
+    VO2X_INPUT,       # 14
     LONG_RUN_DAY,     # 15
     QUALITY_DAY,      # 16
     EASY_DAYS,        # 17  — first easy day button selection
@@ -322,7 +322,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "your exact event, your current fitness, and the time you have.\n\n"
         "<i>Science-Built. Race-Ready.</i>\n\n"
         f"{_DIV}\n\n"
-        "<b>Let's start with your name.</b>"
+        "<b>Choose your country to get started.</b>"
     )
     country_rows = [[k] for k in COUNTRY_OPTIONS.keys()]
     try:
@@ -442,7 +442,7 @@ async def get_race(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         f"{_e(preset.get('description', ''))}\n\n"
         "Have you completed a race in the last 12 months and have a finish time?",
         reply_markup=ReplyKeyboardMarkup(
-            [["Yes, I have a recent race time"], ["No, I am a beginner / returning runner"], ["I know my VDOT number"]],
+            [["Yes, I have a recent race time"], ["No, I am a beginner / returning runner"], ["I know my VO2X number"]],
             one_time_keyboard=True, resize_keyboard=True,
         ),
         parse_mode="HTML",
@@ -549,7 +549,7 @@ async def get_custom_date(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         _step(3, "Your running experience")
         + "Have you completed a race in the last 12 months and have a finish time?",
         reply_markup=ReplyKeyboardMarkup(
-            [["Yes, I have a recent race time"], ["No, I am a beginner / returning runner"], ["I know my VDOT number"]],
+            [["Yes, I have a recent race time"], ["No, I am a beginner / returning runner"], ["I know my VO2X number"]],
             one_time_keyboard=True, resize_keyboard=True,
         ),
         parse_mode="HTML",
@@ -562,17 +562,20 @@ async def get_custom_date(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def get_experience(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.effective_message.text.strip().lower()
 
-    if "vdot" in text:
+    if "vo2x" in text:
         await update.effective_message.reply_text(
-            _step(4, "Your VDOT")
-            + "Enter your VDOT number.\n\n"
-            "VDOT is a fitness score from Jack Daniels' formula — "
-            "typically between <b>30</b> (beginner) and <b>75</b> (elite).\n\n"
+            _step(4, "Your VO2X")
+            + "Enter your VO2X number.\n\n"
+            "<b>VO2X — Velocity–Oxygen Performance Index</b>\n"
+            "A single number that measures how efficiently you convert "
+            "oxygen into speed. It combines aerobic capacity, pace, and "
+            "durability into one practical score.\n\n"
+            "Typical range: <b>30</b> (beginner) → <b>75</b> (elite)\n\n"
             "Example: <code>48</code> or <code>52.5</code>",
             reply_markup=ReplyKeyboardRemove(),
             parse_mode="HTML",
         )
-        return VDOT_INPUT
+        return VO2X_INPUT
 
     if "yes" in text or "recent" in text:
         _ud(context)["v2_has_recent_race"] = True
@@ -622,23 +625,23 @@ async def get_recent_dist(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return RECENT_TIME
 
 
-# ── VDOT direct input ─────────────────────────────────────────────────────
+# ── VO2X direct input ─────────────────────────────────────────────────────
 
-async def get_vdot_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def get_vo2x_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     raw = update.effective_message.text.strip().replace(",", ".")
     try:
-        vdot = float(raw)
-        if not (20.0 <= vdot <= 90.0):
+        vo2x = float(raw)
+        if not (20.0 <= vo2x <= 90.0):
             raise ValueError("out of range")
     except ValueError:
         await update.effective_message.reply_text(
-            "Please enter a VDOT number between <b>20</b> and <b>90</b>.\n"
+            "Please enter a VO2X number between <b>20</b> and <b>90</b>.\n"
             "Example: <code>48</code> or <code>52.5</code>",
             parse_mode="HTML",
         )
-        return VDOT_INPUT
+        return VO2X_INPUT
 
-    _ud(context)["v2_direct_vdot"] = round(vdot, 1)
+    _ud(context)["v2_direct_vo2x"] = round(vo2x, 1)
     return await _ask_weekly_km(update, context, step=5)
 
 
@@ -682,7 +685,7 @@ async def get_beginner_ability(update: Update, context: ContextTypes.DEFAULT_TYP
             + "Great — Couch to 5K is the perfect starting point.\n\n"
             "You'll follow a 12-week walk/run programme that builds from "
             "walking intervals all the way to a non-stop 5 km run.\n\n"
-            "No VDOT, no paces — just three sessions a week and a plan that "
+            "No VO2X, no paces — just three sessions a week and a plan that "
             "meets you exactly where you are.\n\n"
             "📍 <b>One last thing — where are you based?</b>\n"
             "This lets me adjust your sessions for local weather conditions. "
@@ -1127,7 +1130,7 @@ async def _create_c25k_profile(update: Update, context: ContextTypes.DEFAULT_TYP
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(f"{API_BASE_URL}/athlete/c25k", json=payload)
             if r.status_code == 409:
                 await client.delete(f"{API_BASE_URL}/athlete/{telegram_id}")
@@ -1230,7 +1233,7 @@ async def get_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         weekly_mileage_km        = ud.get("v2_weekly_km", 0),
         longest_run_km           = ud.get("v2_longest_run", 0),
         plan_type                = plan_key,
-        direct_vdot              = ud.get("v2_direct_vdot"),
+        direct_vo2x              = ud.get("v2_direct_vo2x"),
     )
     result = predict(inp)
 
@@ -1304,7 +1307,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
 
-        # ── Recompute prediction to get VDOT ──────────────────────────────
+        # ── Recompute prediction to get VO2X ──────────────────────────────
         race_date = date.fromisoformat(ud["v2_race_date"])
         inp = PredictionInput(
             race_name                = ud.get("v2_race_name", "Your race"),
@@ -1318,7 +1321,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             weekly_mileage_km        = ud.get("v2_weekly_km", 0),
             longest_run_km           = ud.get("v2_longest_run", 0),
             plan_type                = ud.get("v2_plan_type", "balanced"),
-            direct_vdot              = ud.get("v2_direct_vdot"),
+            direct_vo2x              = ud.get("v2_direct_vo2x"),
         )
         result = predict(inp)
 
@@ -1329,7 +1332,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             "telegram_id":            telegram_id,
             "name":                   ud.get("v2_name", "Runner"),
             "current_weekly_mileage": max(ud.get("v2_weekly_km", 10), 5.0),
-            "vdot":                   result.vdot or 35.0,
+            "vo2x":                   result.vo2x or 35.0,
             "race_distance":          race_distance,
             "race_hilliness":         ud.get("v2_race_hilliness", "low"),
             "race_date":              ud["v2_race_date"],
@@ -1346,7 +1349,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         }
 
         # ── POST to API ───────────────────────────────────────────────────
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(f"{API_BASE_URL}/athlete/", json=payload)
             if r.status_code == 409:
                 # Profile already exists — delete and recreate
@@ -1396,7 +1399,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"<b>TR3D  ·  PLAN CREATED</b>\n{_DIV}\n\n"
         f"Your training plan is live, <b>{_e(name)}</b>!\n\n"
         f"Target:  <b>{result.low_fmt()} — {result.high_fmt()}</b>\n"
-        f"VDOT:    <b>{result.vdot:.1f}</b>\n\n"
+        f"VO2X:    <b>{result.vo2x:.1f}</b>  <i>· Velocity–Oxygen Performance Index</i>\n\n"
         f"{_DIV}\n\n"
         "Use the menu below to see today's session.",
         reply_markup=main_menu_keyboard(),

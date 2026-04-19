@@ -6,7 +6,7 @@ from datetime import date
 from typing import Optional
 
 from coach_core.database import get_db
-from coach_core.models import Athlete, VDOTHistory, RunLog
+from coach_core.models import Athlete, VO2XHistory, RunLog
 from coach_core.engine.paces import calculate_paces, format_pace
 
 router = APIRouter(prefix="/athlete", tags=["athlete"])
@@ -27,7 +27,7 @@ class AthleteCreate(BaseModel):
     telegram_id: str
     name: str
     current_weekly_mileage: float
-    vdot: float
+    vo2x: float
     race_distance: str           # "5k" | "10k" | "half" | "marathon" | "ultra"
     race_hilliness: str = "low"  # "low" | "medium" | "high"
     race_date: date
@@ -55,7 +55,7 @@ class AthleteCreateC25K(BaseModel):
 # ── Graduation: C25K → full plan ──────────────────────────────────────────
 
 class GraduateC25K(BaseModel):
-    vdot: float
+    vo2x: float
     current_weekly_mileage: float
     race_distance: str
     race_hilliness: str = "low"
@@ -70,7 +70,7 @@ class AthleteResponse(BaseModel):
     name: str
     plan_type: str
     current_weekly_mileage: Optional[float]
-    vdot: Optional[float]
+    vo2x: Optional[float]
     race_distance: Optional[str]
     race_date: Optional[date]
     start_date: date
@@ -104,7 +104,7 @@ async def create_athlete(data: AthleteCreate, db: AsyncSession = Depends(get_db)
         name=data.name,
         plan_type="full",
         current_weekly_mileage=data.current_weekly_mileage,
-        vdot=data.vdot,
+        vo2x=data.vo2x,
         race_distance=data.race_distance,
         race_hilliness=data.race_hilliness,
         race_date=data.race_date,
@@ -120,9 +120,9 @@ async def create_athlete(data: AthleteCreate, db: AsyncSession = Depends(get_db)
     )
     db.add(athlete)
     await db.flush()
-    db.add(VDOTHistory(
+    db.add(VO2XHistory(
         athlete_id=athlete.id,
-        vdot=data.vdot,
+        vo2x=data.vo2x,
         source="initial",
         effective_date=data.start_date,
     ))
@@ -133,7 +133,7 @@ async def create_athlete(data: AthleteCreate, db: AsyncSession = Depends(get_db)
 
 @router.post("/c25k", response_model=AthleteResponse, status_code=201)
 async def create_c25k_athlete(data: AthleteCreateC25K, db: AsyncSession = Depends(get_db)):
-    """Create a C25K beginner profile. No VDOT or race details required."""
+    """Create a C25K beginner profile. No VO2X or race details required."""
     result = await db.execute(select(Athlete).where(Athlete.telegram_id == data.telegram_id))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Profile already exists.")
@@ -160,7 +160,7 @@ async def graduate_c25k(
 ):
     """
     Graduate an athlete from C25K to a full plan.
-    Updates VDOT, mileage, race details, and flips plan_type to 'full'.
+    Updates VO2X, mileage, race details, and flips plan_type to 'full'.
     """
     result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
     athlete = result.scalar_one_or_none()
@@ -171,16 +171,16 @@ async def graduate_c25k(
 
     athlete.plan_type = "full"
     athlete.c25k_completed = True
-    athlete.vdot = data.vdot
+    athlete.vo2x = data.vo2x
     athlete.current_weekly_mileage = data.current_weekly_mileage
     athlete.race_distance = data.race_distance
     athlete.race_hilliness = data.race_hilliness
     athlete.race_date = data.race_date
     athlete.start_date = date.today()  # reset so week 1 of full plan starts today
 
-    db.add(VDOTHistory(
+    db.add(VO2XHistory(
         athlete_id=athlete.id,
-        vdot=data.vdot,
+        vo2x=data.vo2x,
         source="c25k_graduation",
         effective_date=date.today(),
     ))
@@ -203,7 +203,7 @@ async def get_all_athletes(db: AsyncSession = Depends(get_db)):
             "training_profile":      a.training_profile or "conservative",
             "long_run_day":          a.long_run_day or "Sat",
             "quality_day":           a.quality_day or "Tue",
-            "vdot":                  a.vdot,
+            "vo2x":                  a.vo2x,
             "race_date":             a.race_date.isoformat() if a.race_date else None,
             # fields needed for race-eve & report predictions
             "race_name":             a.race_name,
@@ -231,12 +231,12 @@ async def get_paces(telegram_id: str, db: AsyncSession = Depends(get_db)):
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
-    if not athlete.vdot:
-        raise HTTPException(status_code=400, detail="No VDOT yet — complete C25K first.")
+    if not athlete.vo2x:
+        raise HTTPException(status_code=400, detail="No VO2X yet — complete C25K first.")
 
-    paces = calculate_paces(athlete.vdot)
+    paces = calculate_paces(athlete.vo2x)
     return {
-        "vdot": athlete.vdot,
+        "vo2x": athlete.vo2x,
         "easy": format_pace(paces.easy_min_per_km),
         "marathon": format_pace(paces.marathon_min_per_km),
         "threshold": format_pace(paces.threshold_min_per_km),
@@ -255,10 +255,10 @@ async def delete_athlete(telegram_id: str, db: AsyncSession = Depends(get_db)):
     # Explicitly delete related records first.
     # SQLite reuses primary keys when a table empties — without this, a new
     # athlete created immediately after reset would inherit the deleted athlete's
-    # run logs and VDOT history (same athlete.id reassigned by SQLite).
+    # run logs and VO2X history (same athlete.id reassigned by SQLite).
     from sqlalchemy import delete as _delete
     await db.execute(_delete(RunLog).where(RunLog.athlete_id == athlete.id))
-    await db.execute(_delete(VDOTHistory).where(VDOTHistory.athlete_id == athlete.id))
+    await db.execute(_delete(VO2XHistory).where(VO2XHistory.athlete_id == athlete.id))
 
     await db.delete(athlete)
     await db.commit()

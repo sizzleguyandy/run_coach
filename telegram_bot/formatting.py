@@ -155,12 +155,12 @@ _TWO_OCEANS_BATCHES = [
 ]
 
 
-def get_two_oceans_batch(vdot: float) -> dict | None:
+def get_two_oceans_batch(vo2x: float) -> dict | None:
     try:
         import math
         _A, _B, _C = 0.000104, 0.182258, 4.6
-        vdot_f = max(30.0, min(85.0, float(vdot)))
-        v = (-_B + math.sqrt(_B * _B + 4.0 * _A * (vdot_f * 0.88 + _C))) / (2.0 * _A)
+        vo2x_f = max(30.0, min(85.0, float(vo2x)))
+        v = (-_B + math.sqrt(_B * _B + 4.0 * _A * (vo2x_f * 0.88 + _C))) / (2.0 * _A)
         hm_min = 21097 / v
         for b in _TWO_OCEANS_BATCHES:
             if b["fastest_min"] <= hm_min <= b["slowest_min"]:
@@ -576,7 +576,7 @@ def format_dashboard(
 
     # ── Data ───────────────────────────────────────────────────────────────
     name          = athlete.get("name", "Athlete")
-    vdot          = athlete.get("vdot", "?")
+    vo2x          = athlete.get("vo2x", "?")
     race_distance = athlete.get("race_distance", "")
     race_date_str = athlete.get("race_date", "")
     week_num      = week.get("week_number", 1)
@@ -615,10 +615,10 @@ def format_dashboard(
 
     # ── Build message ──────────────────────────────────────────────────────
     lines = [
-        f"📊 {name}  ·  VDOT {vdot}  ·  {weeks_left} weeks to {dist_label}",
+        f"📊 {name}  ·  VO2X {vo2x}  ·  {weeks_left} weeks to {dist_label}",
         "",
         _hdr("DASHBOARD"),
-        f"<b>{name}</b>  ·  VDOT <b>{vdot}</b>",
+        f"<b>{name}</b>  ·  VO2X <b>{vo2x}</b>",
         f"🎯 {dist_label}  ·  <b>{days_display} to race</b>",
         "",
         _sec("TRAINING"),
@@ -643,8 +643,8 @@ def format_dashboard(
             pass
 
     # ── Two Oceans seeding batch ───────────────────────────────────────────
-    if race_distance == "ultra_56" and vdot and vdot != "?":
-        batch_info = get_two_oceans_batch(float(vdot))
+    if race_distance == "ultra_56" and vo2x and vo2x != "?":
+        batch_info = get_two_oceans_batch(float(vo2x))
         if batch_info:
             lines += [
                 "",
@@ -743,7 +743,7 @@ def format_paces(paces: dict, weather: "dict | None" = None) -> str:
     Training paces view.
     weather: optional TRUEPACE response dict — if provided, shows BASE vs OUTDOOR columns.
     """
-    vdot = paces.get("vdot", "?")
+    vo2x = paces.get("vo2x", "?")
 
     # Determine if we have outdoor-adjusted paces
     adjusted = {}
@@ -765,7 +765,7 @@ def format_paces(paces: dict, weather: "dict | None" = None) -> str:
 
     lines = [
         _hdr("MY PACES"),
-        f"Fitness level:  VDOT <b>{vdot}</b>",
+        f"VO2X  <b>{vo2x}</b>  <i>· Velocity–Oxygen Performance Index</i>",
         "",
     ]
 

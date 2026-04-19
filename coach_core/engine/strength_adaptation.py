@@ -10,9 +10,9 @@ Two responsibilities:
      - Weights increased       → 48 hours
    Written to athletes.strength_load_expires_at (DateTime).
 
-2. VDOT pace-gap check
+2. VO2X pace-gap check
    Daily: for each full-plan athlete, check whether 70%+ of runs in the last
-   14 days were slower than prescribed pace. If so, apply −0.5 VDOT.
+   14 days were slower than prescribed pace. If so, apply −0.5 VO2X.
    Cooldown: 14 days after any adjustment.
 """
 
@@ -33,7 +33,7 @@ PACE_GAP_WINDOW_DAYS  = 14      # rolling window for pace-gap check
 PACE_GAP_THRESHOLD    = 0.70    # fraction of sessions below pace to trigger
 PACE_GAP_TOLERANCE    = 0.05    # 5% slower than prescribed = "below pace"
 PACE_GAP_MIN_SESSIONS = 5       # minimum sessions in window to run check
-PACE_GAP_VDOT_DROP    = 0.5     # VDOT reduction per adjustment
+PACE_GAP_VO2X_DROP    = 0.5     # VO2X reduction per adjustment
 PACE_GAP_COOLDOWN_DAYS = 14     # days before re-evaluating same athlete
 
 
@@ -95,7 +95,7 @@ def block_expires_in_hours(strength_load_expires_at: Optional[datetime]) -> floa
     return round(delta.total_seconds() / 3600, 1)
 
 
-# ── 2. VDOT pace-gap check ────────────────────────────────────────────────
+# ── 2. VO2X pace-gap check ────────────────────────────────────────────────
 
 def _pace_is_below(actual_pace: float, prescribed_pace: float, tolerance: float = PACE_GAP_TOLERANCE) -> bool:
     """
@@ -120,7 +120,7 @@ def check_pace_gap(runs: list[dict]) -> dict:
           "sessions_checked": int,
           "below_pace_count": int,
           "below_pace_pct":   float,
-          "trigger":          bool,   # True → apply VDOT drop
+          "trigger":          bool,   # True → apply VO2X drop
         }
     """
     # Filter to runs with both pace fields populated
@@ -163,11 +163,11 @@ def pace_gap_cooldown_active(cooldown_until: Optional[date], check_date: date) -
     return check_date <= cooldown_until
 
 
-def pace_gap_bot_message(old_vdot: float, new_vdot: float) -> str:
-    """Human-readable message sent to athlete after a pace-adjusted VDOT drop."""
+def pace_gap_bot_message(old_vo2x: float, new_vo2x: float) -> str:
+    """Human-readable message sent to athlete after a pace-adjusted VO2X drop."""
     return (
         f"Your recent runs suggest your current paces may be a little high. "
-        f"I've adjusted your VDOT from {old_vdot} → {new_vdot} — "
+        f"I've adjusted your VO2X from {old_vo2x} → {new_vo2x} — "
         f"your new paces will feel more manageable. "
         f"Keep showing up consistently and it'll come back up."
     )

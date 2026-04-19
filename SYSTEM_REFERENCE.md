@@ -42,11 +42,11 @@
 │                                                                  │
 │  phases.py       Phase allocation (I/II/III/IV)                 │
 │  volume.py       Volume progression + distance-specific taper   │
-│  paces.py        VDOT → pace lookup table (Daniels 4th ed)      │
+│  paces.py        VO2X → pace lookup table (Daniels 4th ed)      │
 │  workouts.py     7-day session builder                           │
 │  plan_builder.py Assembles full plan from all engine modules    │
 │  hills.py        Hill work replacement logic                     │
-│  adaptation.py   Closed-loop weekly adjustment + VDOT from race │
+│  adaptation.py   Closed-loop weekly adjustment + VO2X from race │
 │  c25k.py         Couch to 5K programme (standalone)             │
 │  truepace.py     Weather-based pace adjustment                   │
 │  sa_cities.py    SA city → lat/lon lookup (30 cities)           │
@@ -54,7 +54,7 @@
                       │
 ┌─────────────────────▼───────────────────────────────────────────┐
 │                     DATABASE  (SQLite / aiosqlite)               │
-│  athletes    RunLog    VDOTHistory                               │
+│  athletes    RunLog    VO2XHistory                               │
 └─────────────────────────────────────────────────────────────────┘
                       ▲
                       │ fetch_weather()
@@ -77,7 +77,7 @@
 | name | string | |
 | plan_type | string | `"full"` or `"c25k"` |
 | current_weekly_mileage | float (km) | Nullable for C25K |
-| vdot | float | 30–85. Nullable for C25K |
+| vo2x | float | 30–85. Nullable for C25K |
 | race_distance | string | `"5k"` `"10k"` `"half"` `"marathon"` `"ultra"` |
 | race_hilliness | string | `"low"` `"medium"` `"high"` |
 | race_date | date | |
@@ -100,9 +100,9 @@
 | duration_minutes | float | Optional |
 | rpe | int | 1–10. Optional |
 
-### VDOTHistory table
+### VO2XHistory table
 
-Tracks every VDOT change. Source values: `initial` `race` `time_trial` `adjusted` `c25k_graduation`
+Tracks every VO2X change. Source values: `initial` `race` `time_trial` `adjusted` `c25k_graduation`
 
 ---
 
@@ -122,13 +122,13 @@ BEGINNER                RETURNING               EXPERIENCED
   Q3  City / TRUEPACE   Q3  Weekly mileage       Q3  Weekly mileage
       [city keyboard]       [number, km/wk]          [number, km/wk]
       [Skip option]
-                        Q4  VDOT method           Q4  VDOT method
+                        Q4  VO2X method           Q4  VO2X method
                             [3 buttons]               [3 buttons]
   ↓
 DONE (2 questions           ↓           ↓           ↓
 + location = 3)        Know it    Estimate    Not sure
                             │      from race       │
-                        Q4a VDOT  Q4b Dist    (estimated
+                        Q4a VO2X  Q4b Dist    (estimated
                             no.   Q4c Time     silently)
                             │          │           │
                             └──────────┴───────────┘
@@ -144,31 +144,31 @@ DONE (2 questions           ↓           ↓           ↓
 
 ### Q1 buttons and what they trigger
 
-| Button | Detected by | Plan type | VDOT needed |
+| Button | Detected by | Plan type | VO2X needed |
 |---|---|---|---|
 | 🌱 Complete beginner | "beginner" or "never" | c25k | No |
 | 🏃 Getting back into it | "back" or "occasionally" | full | Yes (with escape) |
 | 💪 I run regularly | anything else | full | Yes (with escape) |
 
-### Q4 VDOT method detail
+### Q4 VO2X method detail
 
-**"I know my VDOT"** → athlete enters a number (25–85)
+**"I know my VO2X"** → athlete enters a number (25–85)
 
 **"Estimate from race"** → pick distance → enter time → auto-calculated:
 ```
-Example: 10k in 45:00 → VDOT 45.3
-Example: Half in 1:45:00 → VDOT 42.6
-Example: Marathon in 3:30:00 → VDOT 44.6
+Example: 10k in 45:00 → VO2X 45.3
+Example: Half in 1:45:00 → VO2X 42.6
+Example: Marathon in 3:30:00 → VO2X 44.6
 ```
 Time formats accepted: `mm:ss`, `h:mm:ss`, or decimal minutes
 
-**"Not sure"** → VDOT estimated from mileage:
+**"Not sure"** → VO2X estimated from mileage:
 ```
-< 20 km/wk  → VDOT 35
-20–34       → VDOT 38
-35–49       → VDOT 42
-50–69       → VDOT 46
-70+         → VDOT 50
+< 20 km/wk  → VO2X 35
+20–34       → VO2X 38
+35–49       → VO2X 42
+50–69       → VO2X 46
+70+         → VO2X 50
 ```
 
 ### Q8 / Q3 City (TRUEPACE)
@@ -184,7 +184,7 @@ Time formats accepted: `mm:ss`, `h:mm:ss`, or decimal minutes
 
 ### 4A. Full plan (phase-based)
 
-**Entry requirements:** mileage, VDOT, race distance, race date, hilliness
+**Entry requirements:** mileage, VO2X, race distance, race date, hilliness
 
 **Plan duration:** `round((race_date - start_date).days / 7)` clamped to 6–24 weeks
 
@@ -305,11 +305,11 @@ Both runs at easy (E) pace. Example at 140 km/wk: Saturday = 40 km (capped), Sun
 
 ---
 
-## 5. VDOT Pace System
+## 5. VO2X Pace System
 
 ### Lookup table (Daniels 4th edition, selected values)
 
-| VDOT | Easy | Marathon | Threshold | Interval | Repetition |
+| VO2X | Easy | Marathon | Threshold | Interval | Repetition |
 |---|---|---|---|---|---|
 | 35 | 5:40 /km | 4:54 /km | 4:15 /km | 3:44 /km | 3:04 /km |
 | 40 | 5:16 /km | 4:30 /km | 3:54 /km | 3:25 /km | 2:50 /km |
@@ -320,7 +320,7 @@ Both runs at easy (E) pace. Example at 140 km/wk: Saturday = 40 km (capped), Sun
 | 65 | 3:53 /km | 3:07 /km | 2:41 /km | 2:15 /km | 1:51 /km |
 | 70 | 3:41 /km | 2:56 /km | 2:31 /km | 2:05 /km | 1:42 /km |
 
-Full table covers VDOT 30–85. Non-integer values linearly interpolated.
+Full table covers VO2X 30–85. Non-integer values linearly interpolated.
 
 ### Quality session prescription
 
@@ -333,7 +333,7 @@ Full table covers VDOT 30–85. Non-integer values linearly interpolated.
 
 **Rep count formula:** `floor(weekly_volume × 0.20 / (rep_dist × recovery_factor))` clamped to min/max
 
-**Example — VDOT 50, Phase III, 70 km/wk:**
+**Example — VO2X 50, Phase III, 70 km/wk:**
 ```
 quality_km = 70 × 0.20 = 14 km
 reps = floor(14 / (0.8 × 1.5)) = floor(11.67) = 11 → capped at 12
@@ -341,11 +341,11 @@ Workout: 12 × 800m @ 2:51 /km, jog recovery
 Total session: 2 km WU + 12×800m + 1 km CD ≈ 12.6 km
 ```
 
-### VDOT from race performance
+### VO2X from race performance
 
 Formula: Daniels VO₂max equations
 
-| Race | Time | Calculated VDOT |
+| Race | Time | Calculated VO2X |
 |---|---|---|
 | 5k | 15:00 | 69.6 |
 | 5k | 20:00 | 49.8 |
@@ -416,7 +416,7 @@ compliance = actual_volume / planned_volume
 ```
 avg_rpe ≥ 9.0  → modifier = min(modifier, 0.85)
 avg_rpe ≥ 8.5  → modifier = min(modifier, 0.90)
-avg_rpe ≤ 5.0 AND compliance ≥ 0.95  → VDOT += 0.5 (max 85)
+avg_rpe ≤ 5.0 AND compliance ≥ 0.95  → VO2X += 0.5 (max 85)
 ```
 
 ### Example outcomes
@@ -426,7 +426,7 @@ avg_rpe ≤ 5.0 AND compliance ≥ 0.95  → VDOT += 0.5 (max 85)
 | 95% | 6 | Volume unchanged |
 | 70% | 7 | –15% next week |
 | 100% | 9.5 | –15% (RPE override) |
-| 108% | 4.5 | +2% volume + VDOT nudge |
+| 108% | 4.5 | +2% volume + VO2X nudge |
 | 75% | 9.2 | –15% (both agree) |
 
 ---
@@ -449,7 +449,7 @@ avg_rpe ≤ 5.0 AND compliance ≥ 0.95  → VDOT += 0.5 (max 85)
 | 11 | Mon/Wed/Fri | 30 min | Continuous + 4 strides |
 | 12 | Mon/Wed/Fri | 30 min | Continuous + 6 strides + 5k time trial |
 
-No VDOT. All sessions at conversational effort only.
+No VO2X. All sessions at conversational effort only.
 
 **Weather guidance (TRUEPACE for C25K):**
 
@@ -475,19 +475,19 @@ compliance = actual_run_minutes / planned_run_minutes (3 sessions × week's minu
 
 ### Graduation to full plan
 
-After week 12, system needs VDOT. Options:
+After week 12, system needs VO2X. Options:
 
-1. **5k time trial logged** → VDOT calculated directly
+1. **5k time trial logged** → VO2X calculated directly
 2. **No time trial** → estimated from week 11/12 continuous run pace: `pace × 5.0 km = estimated 5k time`
-3. **Fallback** → VDOT 32 (conservative beginner default)
+3. **Fallback** → VO2X 32 (conservative beginner default)
 
-| 5k Time Trial | VDOT | Starting weekly km |
+| 5k Time Trial | VO2X | Starting weekly km |
 |---|---|---|
 | 20:00 | 49.8 | ~9.7 km/wk |
 | 25:00 | 38.3 | ~9.7 km/wk |
 | 30:00 | 30.8 | ~9.7 km/wk |
 
-After graduation: `POST /athlete/{id}/graduate` with VDOT + race details → athlete flips to full plan.
+After graduation: `POST /athlete/{id}/graduate` with VO2X + race details → athlete flips to full plan.
 
 ---
 
@@ -508,7 +508,7 @@ if temperature > 25°C: adjustment += (temperature - 25) × 0.005
 adjustment = min(adjustment, 1.15)   ← capped at 15% slowdown
 ```
 
-### Worked examples (VDOT 50, planned easy pace 4:37 /km)
+### Worked examples (VO2X 50, planned easy pace 4:37 /km)
 
 | Temp | Dew Point | Factor | Easy pace | Warning |
 |---|---|---|---|---|
@@ -557,14 +557,14 @@ Day 1
 Week 12 (12 weeks later)
   Athlete runs 5k in 28:00
   → /log → logs time trial
-  → POST /log/c25k/timetrial → VDOT 32.5 calculated
+  → POST /log/c25k/timetrial → VO2X 32.5 calculated
   → System sends graduation message
 
   Athlete chooses to target a half marathon:
   → POST /athlete/{id}/graduate
-    { vdot: 32.5, race_distance: "half", race_date: "2027-03-15",
+    { vo2x: 32.5, race_distance: "half", race_date: "2027-03-15",
       race_hilliness: "low", current_weekly_mileage: 18 }
-  → Full plan generated: 16 weeks, VDOT 32.5
+  → Full plan generated: 16 weeks, VO2X 32.5
 ```
 
 ### Example B — Experienced runner (full plan, race estimate)
@@ -577,14 +577,14 @@ Week 12 (12 weeks later)
 → Q4: "🏁 Estimate from a recent race time"
 → Q4b: "10k"
 → Q4c: "44:15"   (parsed as 44.25 min)
-   → VDOT calculated: 45.8
-   → System confirms: "Your VDOT is 45.8"
+   → VO2X calculated: 45.8
+   → System confirms: "Your VO2X is 45.8"
 → Q5: "marathon"
 → Q6: "2026-09-20"   (26 weeks out)
 → Q7: "🌄 Medium (rolling hills)"
 → Q8: "Durban"
 → Plan generated:
-   - 24 weeks, VDOT 45.8
+   - 24 weeks, VO2X 45.8
    - Phases: I=6, II=6, III=6, IV=6
    - Target peak: min(120, 55×2.5=137.5) = 120 km
    - Hill work: Phase II and III alternate weeks (medium hilliness)
@@ -598,7 +598,7 @@ Athlete in Johannesburg, early March (T=28°C, dew=16°C)
 
 /plan
 → Week 15 (Phase III): 6 × 800m @ I pace
-  Planned I pace: 3:07 /km (VDOT 50)
+  Planned I pace: 3:07 /km (VO2X 50)
 
 → TRUEPACE block appended:
   "🌡️ 28°C, dew point 16°C — adjust pace by +5.0%"
@@ -637,16 +637,16 @@ run_coach/
 ├── coach_core/
 │   ├── main.py                         FastAPI app + lifespan init_db()
 │   ├── database.py                     Async SQLite session
-│   ├── models.py                       Athlete, RunLog, VDOTHistory
+│   ├── models.py                       Athlete, RunLog, VO2XHistory
 │   │
 │   ├── engine/
 │   │   ├── phases.py                   get_phases(weeks) → PhaseAllocation
 │   │   ├── volume.py                   build_volume_curve() + get_taper_weeks()
-│   │   ├── paces.py                    calculate_paces(vdot) → Paces (lookup table)
+│   │   ├── paces.py                    calculate_paces(vo2x) → Paces (lookup table)
 │   │   ├── workouts.py                 build_week_days() → 7-day session dict
 │   │   ├── plan_builder.py             build_full_plan() → complete plan dict
 │   │   ├── hills.py                    should_replace_with_hills() + hill prescriptions
-│   │   ├── adaptation.py               adapt_next_week() + calculate_vdot_from_race()
+│   │   ├── adaptation.py               adapt_next_week() + calculate_vo2x_from_race()
 │   │   ├── c25k.py                     build_c25k_week() + adapt_c25k_week() + compute_transition()
 │   │   ├── truepace.py                 fetch_weather() + compute_adjustment() + get_truepace_block()
 │   │   └── sa_cities.py                find_city() + 30-city lookup table
