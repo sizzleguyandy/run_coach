@@ -63,9 +63,13 @@ RACE_PREP_MILESTONES: list[tuple[int, str, int | None]] = [
 # ── API helpers ───────────────────────────────────────────────────────────────
 
 async def _fetch_all_athletes() -> list[dict]:
+    admin_key = os.getenv("ADMIN_SECRET", "")
     async with httpx.AsyncClient(timeout=15) as client:
         try:
-            r = await client.get(f"{API_BASE_URL}/athletes/all")
+            r = await client.get(
+                f"{API_BASE_URL}/athlete/all",
+                headers={"X-Admin-Key": admin_key},
+            )
             if r.status_code == 200:
                 return r.json()
         except Exception:
@@ -1555,8 +1559,7 @@ async def _run_vo2x_pace_gap_check(bot: Bot, athletes: list[dict]) -> None:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 r = await client.post(
-                    f"{API_BASE_URL}/strength/pace-gap-check",
-                    params={"telegram_id": tid},
+                    f"{API_BASE_URL}/strength/{tid}/pace-gap-check",
                 )
             if r.status_code != 200:
                 continue

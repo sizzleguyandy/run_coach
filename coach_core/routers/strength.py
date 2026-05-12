@@ -269,9 +269,9 @@ async def update_strength_settings(
 
 # ── POST /strength/pace-gap-check ─────────────────────────────────────────
 
-@router.post("/strength/pace-gap-check")
+@router.post("/strength/{telegram_id}/pace-gap-check")
 async def run_pace_gap_check(
-    telegram_id: str = Query(..., description="Athlete telegram ID"),
+    telegram_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """

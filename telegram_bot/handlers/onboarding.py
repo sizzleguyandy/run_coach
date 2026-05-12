@@ -1,37 +1,9 @@
 """
-onboarding.py — legacy file, retained only for _parse_race_time utility.
+onboarding.py — DEPRECATED. Do not use.
 
-The full onboarding ConversationHandler that previously lived here has been
-replaced by onboarding_v2.py and is no longer registered in bot.py.
+All onboarding logic lives in onboarding_v2.py.
+_parse_race_time has been moved to onboarding_v2.py as an alias for _parse_time.
+log_handler.py now imports from onboarding_v2 directly.
 
-Do NOT re-register the old ConversationHandler — its state constants overlap
-with those defined in onboarding_v2.py and would cause silent routing conflicts.
-
-_parse_race_time is still imported by log_handler.py.
+This file is safe to delete.
 """
-from __future__ import annotations
-
-from typing import Optional
-
-
-def _parse_race_time(text: str) -> Optional[float]:
-    """
-    Parse a race time string into decimal minutes.
-
-    Accepts:
-      HH:MM:SS  → e.g. "3:45:00" → 225.0
-      MM:SS     → e.g. "45:30"   → 45.5
-      float     → e.g. "225"     → 225.0
-
-    Returns None if the input cannot be parsed.
-    """
-    text = text.strip()
-    parts = text.split(":")
-    try:
-        if len(parts) == 2:
-            return int(parts[0]) + int(parts[1]) / 60
-        if len(parts) == 3:
-            return int(parts[0]) * 60 + int(parts[1]) + int(parts[2]) / 60
-        return float(text)
-    except (ValueError, IndexError):
-        return None

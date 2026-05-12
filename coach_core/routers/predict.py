@@ -4,7 +4,7 @@ Prediction API router — V2 onboarding.
 GET  /predict/races   → list all pre-loaded SA race presets
 POST /predict/        → return time range prediction for runner + race
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date
@@ -29,10 +29,33 @@ def _hilliness_to_factor(hilliness: str) -> float:
 # ── GET /predict/races ──────────────────────────────────────────────────────
 
 @router.get("/races")
-async def list_races():
-    """Return all pre-loaded SA race presets for V2 onboarding race picker."""
-    races = []
+async def list_races(
+    country: Optional[str] = Query(
+        None,
+        description="Filter by country code: ZA (South Africa) or GB (United Kingdom). Omit for all races.",
+    ),
+):
+    """Return race presets for the onboarding race picker. Optionally filter by country."""
+    from coach_core.engine.race_presets_sa import RACE_PRESETS_SA as SA_PRESETS
+    from coach_core.engine.race_presets_uk import RACE_PRESETS_UK as UK_PRESETS
+
+    # Build a combined map with country tag
+    all_presets: dict = {}
+    for pid, p in SA_PRESETS.items():
+        all_presets[pid] = {**p, "_country": "ZA"}
+    for pid, p in UK_PRESETS.items():
+        all_presets[pid] = {**p, "_country": "GB"}
+    # Fall back to the main presets dict for anything not in SA/UK files
     for pid, p in RACE_PRESETS.items():
+        if pid not in all_presets:
+            all_presets[pid] = {**p, "_country": "ZA"}  # default
+
+    country_filter = country.upper() if country else None
+
+    races = []
+    for pid, p in all_presets.items():
+        if country_filter and p.get("_country") != country_filter:
+            continue
         hill_factor = PRESET_HILL_FACTORS.get(pid, _hilliness_to_factor(p.get("hilliness", "low")))
         races.append({
             "id":               pid,
@@ -44,6 +67,7 @@ async def list_races():
             "hill_factor":      hill_factor,
             "elevation_gain_m": p.get("elevation_gain_m", 0),
             "description":      p.get("description", ""),
+            "country":          p.get("_country", "ZA"),
         })
 
     races.append({
@@ -51,6 +75,7 @@ async def list_races():
         "name":        "Other race (custom)",
         "emoji":       "🏁",
         "distance_km": None,
+        "country":     country_filter or "ZA",
         "is_custom":   True,
     })
     return races

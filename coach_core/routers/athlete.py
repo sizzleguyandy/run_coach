@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+import os
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -8,6 +9,15 @@ from typing import Optional
 from coach_core.database import get_db
 from coach_core.models import Athlete, VO2XHistory, RunLog
 from coach_core.engine.paces import calculate_paces, format_pace
+
+
+def _require_admin_key(x_admin_key: str = Header(...)) -> None:
+    """Shared guard for internal/admin-only endpoints."""
+    secret = os.getenv("ADMIN_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=500, detail="ADMIN_SECRET not configured.")
+    if x_admin_key != secret:
+        raise HTTPException(status_code=401, detail="Invalid admin key.")
 
 router = APIRouter(prefix="/athlete", tags=["athlete"])
 
@@ -190,8 +200,11 @@ async def graduate_c25k(
 
 
 @router.get("/all")
-async def get_all_athletes(db: AsyncSession = Depends(get_db)):
-    """Return all athletes — used by the daily reminder scheduler."""
+async def get_all_athletes(
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_require_admin_key),
+):
+    """Return all athletes — used by the daily reminder scheduler. Requires X-Admin-Key."""
     result = await db.execute(select(Athlete))
     athletes = result.scalars().all()
     return [

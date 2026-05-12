@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,31 +14,38 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Run Coach API",
+    title="Tr3d Coaching Engine",
     description="Daniels-based deterministic running coach engine",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-# ── CORS — required for the mobile WebView app and any browser-based clients ──
+# ── CORS — configurable via ALLOWED_ORIGINS env var (comma-separated) ─────────
+# Default "*" is kept for local dev; set ALLOWED_ORIGINS in production.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+_allowed_origins = [o.strip() for o in _raw_origins.split(",")] if _raw_origins != "*" else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # tighten to specific domains in production
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(athlete.router)
-app.include_router(plan.router)
-app.include_router(log.router)
-app.include_router(weather.router)
-app.include_router(admin.router)
-app.include_router(predict.router)
-app.include_router(strength.router)
-app.include_router(mobile.router)
+# ── All routes are versioned under /v1 ────────────────────────────────────────
+V1 = "/v1"
+
+app.include_router(athlete.router,  prefix=V1)
+app.include_router(plan.router,     prefix=V1)
+app.include_router(log.router,      prefix=V1)
+app.include_router(weather.router,  prefix=V1)
+app.include_router(admin.router,    prefix=V1)
+app.include_router(predict.router,  prefix=V1)
+app.include_router(strength.router, prefix=V1)
+app.include_router(mobile.router,   prefix=V1)
 
 
 @app.get("/health", tags=["meta"])
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "1.0.0"}

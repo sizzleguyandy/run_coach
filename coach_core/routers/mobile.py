@@ -1,9 +1,10 @@
 """
-Mobile app API — endpoints used exclusively by the Virgin Race white-label app.
+Mobile app API — supplementary endpoints for mobile and white-label clients.
 
 Exposes:
-  GET  /mobile/vo2x          — compute VO2X from a race result
-  POST /mobile/coach         — enriched coach-chat proxy to n8n (keeps webhook URL server-side)
+  GET  /mobile/vo2x                  — compute VO2X from a race result
+  GET  /mobile/athlete/by-code/{code} — look up athlete by link code
+  POST /mobile/coach                 — enriched coach-chat proxy to n8n (keeps webhook URL server-side)
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/mobile", tags=["mobile"])
 _log = logging.getLogger(__name__)
 
 N8N_CHAT_WEBHOOK = os.getenv("N8N_CHAT_WEBHOOK", "")
-API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8000")
+API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/") + "/v1"
 
 
 # ── Link code helpers ─────────────────────────────────────────────────────────

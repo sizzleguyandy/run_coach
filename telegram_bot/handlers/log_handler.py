@@ -329,7 +329,7 @@ async def race_get_dist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 async def race_get_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    from telegram_bot.handlers.onboarding import _parse_race_time
+    from telegram_bot.handlers.onboarding_v2 import _parse_race_time
 
     time_min = _parse_race_time(update.effective_message.text.strip())
     if not time_min or time_min <= 0:

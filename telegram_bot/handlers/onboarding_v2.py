@@ -2,9 +2,11 @@
 Onboarding V2 — Race-first, prediction-driven.
 
 Flow:
-  /start -> NAME -> RACE_SELECT
-    -> (preset) -> EXPERIENCE
-    -> (custom)  -> CUSTOM_DIST -> CUSTOM_HILLS -> CUSTOM_DATE -> EXPERIENCE
+  /start -> COUNTRY -> NAME -> CAN_RUN_5K
+    -> YES -> RACE_SELECT
+                -> (preset) -> EXPERIENCE
+                -> (custom)  -> CUSTOM_DIST -> CUSTOM_HILLS -> CUSTOM_DATE -> EXPERIENCE
+    -> NO  -> C25K path: LOCATION -> profile created
 
   EXPERIENCE:
     -> "Yes, recent race"  -> RECENT_DIST -> RECENT_TIME -> WEEKLY_KM
@@ -74,7 +76,8 @@ from coach_core.engine.adaptation import calculate_vo2x_from_race
     EASY_DAY_2,       # 18  — second easy day button selection
     ANCHOR_QUESTION,  # 19  — do you run with a club/group?
     ANCHOR_KM,        # 20  — how far is the group run?
-) = range(21)
+    CAN_RUN_5K,       # 21  — gate question: can you run 5km in under 35min?
+) = range(22)
 
 # ── Country helpers ────────────────────────────────────────────────────────
 
@@ -269,6 +272,10 @@ def _parse_time(text: str) -> Optional[float]:
     return None
 
 
+# Alias kept for backward-compat with log_handler.py imports
+_parse_race_time = _parse_time
+
+
 def _parse_date(text: str) -> Optional[date]:
     """Parse dd/mm/yyyy or yyyy-mm-dd."""
     text = text.strip()
@@ -377,20 +384,83 @@ async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     _ud(context)["v2_name"] = name
 
-    country = _ud(context).get("v2_country", "sa")
-    rows = _country_keyboard_rows(country)
-    country_label = "United Kingdom" if country == "uk" else "South Africa"
     await update.effective_message.reply_text(
-        _step(2, "Your target race")
-        + f"Great, <b>{_e(name)}</b>! Which race are you training for?\n\n"
-        f"Select a race from <b>{country_label}</b>, or choose <b>Other race</b> to enter a custom one.",
-        reply_markup=ReplyKeyboardMarkup(rows, one_time_keyboard=True, resize_keyboard=True),
+        _step(2, "Quick fitness check")
+        + f"Great to meet you, <b>{_e(name)}</b>!\n\n"
+        "<b>Can you run 5 km (3.1 miles) without stopping in under 35 minutes?</b>\n\n"
+        "Please be honest — this shapes your entire programme. "
+        "If you're not sure, choose <b>No</b>.\n\n"
+        "<i>There is no wrong answer — the system meets you exactly where you are.</i>",
+        reply_markup=ReplyKeyboardMarkup(
+            [["Yes — I can run 5 km in under 35 min"], ["No — I'm not there yet"]],
+            one_time_keyboard=True, resize_keyboard=True,
+        ),
         parse_mode="HTML",
     )
-    return RACE_SELECT
+    return CAN_RUN_5K
 
 
-# ── Step 2: Race selection ─────────────────────────────────────────────────
+# ── Step 2: Can you run 5 km? (C25K gate) ────────────────────────────────
+
+async def get_can_run_5k(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Gate question after NAME.
+    YES -> RACE_SELECT (standard onboarding path)
+    NO  -> C25K path: set flag, skip race selection, go to LOCATION
+    """
+    text = update.effective_message.text.strip().lower()
+
+    if "yes" in text:
+        # Passed the gate — proceed to race selection
+        country = _ud(context).get("v2_country", "sa")
+        rows = _country_keyboard_rows(country)
+        country_label = "United Kingdom" if country == "uk" else "South Africa"
+        await update.effective_message.reply_text(
+            _step(3, "Your target race")
+            + "Which race are you training for?\n\n"
+            f"Select a race from <b>{country_label}</b>, or choose <b>Other race</b> to enter a custom one.",
+            reply_markup=ReplyKeyboardMarkup(rows, one_time_keyboard=True, resize_keyboard=True),
+            parse_mode="HTML",
+        )
+        return RACE_SELECT
+
+    if "no" in text:
+        # Did not pass gate — route directly to C25K
+        _ud(context)["v2_is_c25k"] = True
+        name = _ud(context).get("v2_name", "Runner")
+        rows = city_keyboard_rows(cols=2)
+        rows.append(["Skip for now"])
+        await update.effective_message.reply_text(
+            _step(3, "Couch to 5K programme")
+            + f"No problem, <b>{_e(name)}</b> — Couch to 5K is the perfect starting point.\n\n"
+            "You'll follow a <b>12-week walk/run programme</b> that builds from short "
+            "walking intervals all the way to a non-stop 5 km run.\n\n"
+            "Three sessions a week, no paces, no pressure — "
+            "just a plan that meets you exactly where you are.\n\n"
+            "Once you complete C25K, the system will automatically calculate your "
+            "VO2X and move you into a full race training plan.\n\n"
+            f"{_DIV}\n\n"
+            "📍 <b>Where are you based?</b>\n"
+            "This lets me adjust your sessions for local weather. "
+            "Select your nearest city or tap <b>Skip for now</b>.",
+            reply_markup=ReplyKeyboardMarkup(rows, one_time_keyboard=True, resize_keyboard=True),
+            parse_mode="HTML",
+        )
+        return LOCATION
+
+    # Unrecognised response — re-ask
+    await update.effective_message.reply_text(
+        "Please tap <b>Yes</b> or <b>No</b> using the buttons below.",
+        reply_markup=ReplyKeyboardMarkup(
+            [["Yes — I can run 5 km in under 35 min"], ["No — I'm not there yet"]],
+            one_time_keyboard=True, resize_keyboard=True,
+        ),
+        parse_mode="HTML",
+    )
+    return CAN_RUN_5K
+
+
+# ── Step 3: Race selection ─────────────────────────────────────────────────
 
 async def get_race(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.effective_message.text.strip()
@@ -404,7 +474,7 @@ async def get_race(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             [list(CUSTOM_DIST_OPTIONS.keys())[4]],
         ]
         await update.effective_message.reply_text(
-            _step(2, "Custom race — distance")
+            _step(3, "Custom race — distance")
             + "What distance is your race?",
             reply_markup=ReplyKeyboardMarkup(dist_rows, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML",
@@ -489,7 +559,7 @@ async def get_custom_dist(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     _ud(context)["v2_race_distance"]    = km_to_race_distance(km)
 
     await update.effective_message.reply_text(
-        _step(2, "Custom race — terrain")
+        _step(3, "Custom race — terrain")
         + "What is the terrain like?",
         reply_markup=ReplyKeyboardMarkup(
             [HILL_DISPLAY[:2], HILL_DISPLAY[2:]],
@@ -519,7 +589,7 @@ async def get_custom_hills(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     _ud(context)["v2_race_hilliness"] = profile["race_hilliness"]
 
     await update.effective_message.reply_text(
-        _step(2, "Custom race — date")
+        _step(3, "Custom race — date")
         + "When is the race? Enter the date as <code>dd/mm/yyyy</code>\n"
         "Example: <code>15/04/2026</code>",
         reply_markup=ReplyKeyboardRemove(),
@@ -1396,10 +1466,10 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     name = payload["name"]
     await update.effective_message.reply_text(
-        f"<b>TR3D  ·  PLAN CREATED</b>\n{_DIV}\n\n"
+        f"<b>TR3D  \u00b7  PLAN CREATED</b>\n{_DIV}\n\n"
         f"Your training plan is live, <b>{_e(name)}</b>!\n\n"
-        f"Target:  <b>{result.low_fmt()} — {result.high_fmt()}</b>\n"
-        f"VO2X:    <b>{result.vo2x:.1f}</b>  <i>· Velocity–Oxygen Performance Index</i>\n\n"
+        f"Target:  <b>{result.low_fmt()} \u2014 {result.high_fmt()}</b>\n"
+        f"VO2X:    <b>{result.vo2x:.1f}</b>  <i>\u00b7 Velocity\u2013Oxygen Performance Index</i>\n\n"
         f"{_DIV}\n\n"
         "Use the menu below to see today's session.",
         reply_markup=main_menu_keyboard(),
@@ -1409,15 +1479,15 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def v2_restart_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Called from handle_callback when data == 'v2_restart'.
-    NOTE: handle_callback already calls query.answer() — do NOT call it again here.
+    NOTE: handle_callback already calls query.answer() -- do NOT call it again here.
     """
     _clear_v2(context)
     await update.effective_message.reply_text(
-        "No problem — let's start over. Type /start to begin.",
+        "No problem -- let's start over. Type /start to begin.",
     )
 
 
-# ── Shared handlers (cancel, reset, web app) ──────────────────────────────
+# -- Shared handlers (cancel, reset, web app) --
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     _clear_v2(context)
@@ -1447,7 +1517,7 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
     """
     Placeholder for Telegram Web App (mini-app) data events.
 
-    The v2 onboarding does not currently use web_app_data — this handler
+    The v2 onboarding does not currently use web_app_data -- this handler
     is registered to prevent unhandled-update noise and to reserve the hook
     for future mini-app flows. It logs the payload and does nothing else.
     """
@@ -1457,4 +1527,4 @@ async def handle_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE
         raw = update.effective_message.web_app_data.data
         _logger.info(f"handle_web_app_data received (unhandled): {raw[:200]}")
     except Exception as e:
-        _logger.warning(f"handle_web_app_data: could not read payload — {e}")
+        _logger.warning(f"handle_web_app_data: could not read payload -- {e}")
