@@ -32,6 +32,279 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 
 
+# ── Admin Dashboard ───────────────────────────────────────────────────────────
+
+@router.get("/dashboard", response_class=HTMLResponse, include_in_schema=False)
+async def admin_dashboard():
+    """Serve the web-based admin UI. Login with ADMIN_SECRET in the browser."""
+    return HTMLResponse(content="""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tr3d Admin</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+  .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card { background: #1a1d27; border: 1px solid #2d3148; border-radius: 12px; padding: 40px; width: 360px; }
+  .logo { color: #26B5A8; font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .subtitle { color: #64748b; font-size: 14px; margin-bottom: 32px; }
+  input { width: 100%; padding: 12px 16px; background: #0f1117; border: 1px solid #2d3148; border-radius: 8px; color: #e2e8f0; font-size: 15px; margin-bottom: 16px; outline: none; }
+  input:focus { border-color: #26B5A8; }
+  .btn { width: 100%; padding: 12px; background: #26B5A8; border: none; border-radius: 8px; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
+  .btn:hover { opacity: .85; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-danger { background: #ef4444; }
+  .btn-small { width: auto; padding: 6px 14px; font-size: 13px; }
+  .error { color: #f87171; font-size: 13px; margin-top: 8px; }
+  #app { display: none; }
+  .header { background: #1a1d27; border-bottom: 1px solid #2d3148; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+  .header .logo { font-size: 22px; margin: 0; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .badge { background: #26B5A820; color: #26B5A8; padding: 4px 12px; border-radius: 20px; font-size: 13px; }
+  .logout { background: none; border: 1px solid #2d3148; color: #94a3b8; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .logout:hover { border-color: #ef4444; color: #ef4444; }
+  .main { padding: 32px; max-width: 1200px; margin: 0 auto; }
+  .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+  .stat-card { background: #1a1d27; border: 1px solid #2d3148; border-radius: 10px; padding: 20px 24px; }
+  .stat-label { color: #64748b; font-size: 13px; margin-bottom: 8px; }
+  .stat-value { font-size: 32px; font-weight: 700; color: #26B5A8; }
+  .section-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; color: #e2e8f0; }
+  .search-bar { width: 100%; padding: 10px 16px; background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; color: #e2e8f0; font-size: 14px; margin-bottom: 16px; outline: none; }
+  .search-bar:focus { border-color: #26B5A8; }
+  table { width: 100%; border-collapse: collapse; background: #1a1d27; border-radius: 10px; overflow: hidden; border: 1px solid #2d3148; }
+  th { background: #0f1117; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; padding: 12px 16px; text-align: left; border-bottom: 1px solid #2d3148; }
+  td { padding: 14px 16px; border-bottom: 1px solid #1e2235; font-size: 14px; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #1e2235; }
+  .plan-badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+  .plan-full { background: #26B5A820; color: #26B5A8; }
+  .plan-c25k { background: #f59e0b20; color: #f59e0b; }
+  .empty { text-align: center; padding: 48px; color: #64748b; }
+  .loading { text-align: center; padding: 48px; color: #64748b; }
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; }
+  .modal-bg.open { display: flex; }
+  .modal { background: #1a1d27; border: 1px solid #2d3148; border-radius: 12px; padding: 32px; width: 400px; }
+  .modal h3 { margin-bottom: 12px; font-size: 18px; }
+  .modal p { color: #94a3b8; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+  .modal-actions { display: flex; gap: 12px; }
+  .modal-actions .btn { margin: 0; }
+  .btn-outline { background: none; border: 1px solid #2d3148; color: #94a3b8; }
+  .btn-outline:hover { border-color: #64748b; opacity: 1; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: #26B5A8; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 200; }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #ef4444; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div class="login-wrap" id="loginWrap">
+  <div class="login-card">
+    <div class="logo">Tr3d</div>
+    <div class="subtitle">Admin Dashboard</div>
+    <input type="password" id="keyInput" placeholder="Enter admin key" />
+    <button class="btn" onclick="login()">Sign In</button>
+    <div class="error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <div class="header">
+    <div class="logo">Tr3d Admin</div>
+    <div class="header-right">
+      <span class="badge" id="headerBadge">Loading...</span>
+      <button class="logout" onclick="logout()">Sign Out</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Athletes</div>
+        <div class="stat-value" id="statTotal">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Full Plan</div>
+        <div class="stat-value" id="statFull">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">C25K</div>
+        <div class="stat-value" id="statC25k">—</div>
+      </div>
+    </div>
+
+    <div class="section-title">Athletes</div>
+    <input class="search-bar" id="searchBar" placeholder="Search by name or ID..." oninput="filterAthletes()" />
+
+    <div id="tableWrap">
+      <div class="loading">Loading athletes...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Modal -->
+<div class="modal-bg" id="deleteModal">
+  <div class="modal">
+    <h3>Delete Athlete</h3>
+    <p id="deleteMsg">Are you sure? This will permanently delete the athlete and all their run logs and history.</p>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+      <button class="btn btn-outline" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  let adminKey = '';
+  let allAthletes = [];
+  let deleteTarget = null;
+  const base = window.location.origin;
+
+  function login() {
+    const key = document.getElementById('keyInput').value.trim();
+    if (!key) return;
+    document.querySelector('.btn').disabled = true;
+    fetch(`${base}/v1/admin/stats`, { headers: { 'X-Admin-Key': key } })
+      .then(r => {
+        if (r.status === 401) throw new Error('Invalid admin key');
+        if (!r.ok) throw new Error('Server error');
+        return r.json();
+      })
+      .then(data => {
+        adminKey = key;
+        document.getElementById('loginWrap').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+        updateStats(data);
+        loadAthletes();
+      })
+      .catch(err => {
+        document.getElementById('loginError').textContent = err.message;
+        document.querySelector('.btn').disabled = false;
+      });
+  }
+
+  document.getElementById('keyInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') login();
+  });
+
+  function logout() {
+    adminKey = '';
+    allAthletes = [];
+    document.getElementById('loginWrap').style.display = 'flex';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('keyInput').value = '';
+    document.getElementById('loginError').textContent = '';
+  }
+
+  function updateStats(data) {
+    document.getElementById('statTotal').textContent = data.total_athletes ?? '—';
+    document.getElementById('statFull').textContent = data.full_plan ?? '—';
+    document.getElementById('statC25k').textContent = data.c25k ?? '—';
+    document.getElementById('headerBadge').textContent = `${data.total_athletes ?? 0} athletes`;
+  }
+
+  function loadAthletes() {
+    document.getElementById('tableWrap').innerHTML = '<div class="loading">Loading athletes...</div>';
+    fetch(`${base}/v1/admin/athletes`, { headers: { 'X-Admin-Key': adminKey } })
+      .then(r => r.json())
+      .then(data => {
+        allAthletes = data.athletes || [];
+        renderTable(allAthletes);
+      })
+      .catch(() => {
+        document.getElementById('tableWrap').innerHTML = '<div class="empty">Failed to load athletes.</div>';
+      });
+  }
+
+  function filterAthletes() {
+    const q = document.getElementById('searchBar').value.toLowerCase();
+    const filtered = allAthletes.filter(a =>
+      (a.name || '').toLowerCase().includes(q) ||
+      (a.telegram_id || '').toLowerCase().includes(q) ||
+      (a.race_name || '').toLowerCase().includes(q)
+    );
+    renderTable(filtered);
+  }
+
+  function renderTable(athletes) {
+    if (!athletes.length) {
+      document.getElementById('tableWrap').innerHTML = '<div class="empty">No athletes found.</div>';
+      return;
+    }
+    const rows = athletes.map(a => `
+      <tr>
+        <td><strong>${esc(a.name || '—')}</strong></td>
+        <td style="color:#64748b;font-size:12px">${esc(a.telegram_id || '—')}</td>
+        <td><span class="plan-badge ${a.plan_type === 'c25k' ? 'plan-c25k' : 'plan-full'}">${a.plan_type || '—'}</span></td>
+        <td>${a.vo2x != null ? a.vo2x.toFixed(1) : '—'}</td>
+        <td>${esc(a.race_name || '—')}</td>
+        <td>${a.race_date ? a.race_date.slice(0,10) : '—'}</td>
+        <td>${a.run_log_count ?? 0}</td>
+        <td>${a.streak_weeks ?? 0} wks / ${a.total_badges ?? 0} 🏅</td>
+        <td>${a.created_at ? a.created_at.slice(0,10) : '—'}</td>
+        <td><button class="btn btn-danger btn-small" onclick="deleteAthlete(${a.id}, '${esc(a.name)}')">Delete</button></td>
+      </tr>`).join('');
+    document.getElementById('tableWrap').innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Name</th><th>ID</th><th>Plan</th><th>VO2X</th>
+          <th>Race</th><th>Race Date</th><th>Runs</th><th>Streak</th><th>Joined</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function deleteAthlete(id, name) {
+    deleteTarget = id;
+    document.getElementById('deleteMsg').textContent =
+      `Delete "${name}"? This permanently removes their profile, all run logs, and VO2X history.`;
+    document.getElementById('deleteModal').classList.add('open');
+  }
+
+  function closeModal() {
+    deleteTarget = null;
+    document.getElementById('deleteModal').classList.remove('open');
+  }
+
+  function confirmDelete() {
+    if (!deleteTarget) return;
+    fetch(`${base}/v1/admin/athletes/${deleteTarget}`, {
+      method: 'DELETE',
+      headers: { 'X-Admin-Key': adminKey }
+    }).then(r => {
+      if (!r.ok) throw new Error('Delete failed');
+      closeModal();
+      showToast('Athlete deleted');
+      allAthletes = allAthletes.filter(a => a.id !== deleteTarget);
+      filterAthletes();
+      const total = parseInt(document.getElementById('statTotal').textContent) - 1;
+      document.getElementById('statTotal').textContent = total;
+      document.getElementById('headerBadge').textContent = `${total} athletes`;
+    }).catch(() => showToast('Delete failed', true));
+  }
+
+  function showToast(msg, isError = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(() => t.className = 'toast', 2800);
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+</script>
+</body>
+</html>""")
+
+
+
 def _get_bot_token() -> str:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not token:
