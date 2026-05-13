@@ -33,7 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── All routes are versioned under /v1 ────────────────────────────────────────
+# ── Versioned routes (/v1) — for new integrations and gym clients ─────────────
 V1 = "/v1"
 
 app.include_router(athlete.router,  prefix=V1)
@@ -44,6 +44,16 @@ app.include_router(admin.router,    prefix=V1)
 app.include_router(predict.router,  prefix=V1)
 app.include_router(strength.router, prefix=V1)
 app.include_router(mobile.router,   prefix=V1)
+
+# ── Legacy routes (no prefix) — keeps existing app + Telegram bot working ─────
+app.include_router(athlete.router,  include_in_schema=False)
+app.include_router(plan.router,     include_in_schema=False)
+app.include_router(log.router,      include_in_schema=False)
+app.include_router(weather.router,  include_in_schema=False)
+app.include_router(admin.router,    include_in_schema=False)
+app.include_router(predict.router,  include_in_schema=False)
+app.include_router(strength.router, include_in_schema=False)
+app.include_router(mobile.router,   include_in_schema=False)
 
 
 @app.get("/health", tags=["meta"])
