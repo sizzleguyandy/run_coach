@@ -20,9 +20,10 @@ MIN_RECOVERY_KM     = 4.0   # ~20–25 min easy
 MIN_MEDIUM_LONG_KM  = 5.0
 MIN_LONG_KM         = 7.0
 
-# distance_factor: 0=5k, 0=10k, 1=half, 2=marathon, 3=ultra
+# distance_factor: 0=5k, 0=10k, 1=half, 2=marathon, 3=ultra (all variants)
 DISTANCE_FACTOR: dict[str, int] = {
-    "5k": 0, "10k": 0, "half": 1, "marathon": 2, "ultra": 3,
+    "5k": 0, "10k": 0, "half": 1, "marathon": 2,
+    "ultra": 3, "ultra_56": 3, "ultra_90": 3,
 }
 
 # Ordered days for arithmetic

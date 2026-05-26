@@ -62,12 +62,19 @@ def _daniels_time_minutes(vo2x: float, distance_km: float) -> float:
 
 
 # ── Beginner ability -> predicted 5K time (minutes) ───────────────────────
+# Keys MUST match the frontend's BEGINNER_ABILITIES IDs in brand.ts.
+# Legacy keys "finished_c25k" and "run10k" kept as aliases for backward compatibility.
 
 BEGINNER_5K_TIMES: dict[str, float] = {
-    "couch":        42.0,   # run/walk
-    "run5k_slow":   35.0,   # can run 5km but slowly
-    "finished_c25k": 32.0,  # just completed C25K
-    "run10k":       29.0,   # can run 10km comfortably
+    # Current frontend IDs (brand.ts)
+    "couch":         42.0,   # cannot currently run / starting from zero
+    "occasional":    38.0,   # walks more than runs, can manage short jogs
+    "run5k_slow":    35.0,   # can run 5km but slowly
+    "run5k_reg":     30.0,   # runs 5km+ regularly, comfortable on feet
+    "run10k_reg":    27.0,   # runs 10km+ regularly, established aerobic base
+    # Legacy aliases (kept for back-compat — do not remove without a migration)
+    "finished_c25k": 32.0,
+    "run10k":        29.0,
 }
 
 

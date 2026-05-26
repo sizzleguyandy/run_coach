@@ -1547,9 +1547,12 @@ async def _send_strength_reminders(
 
 async def _run_vo2x_pace_gap_check(bot: Bot, athletes: list[dict]) -> None:
     """
-    Daily 06:00 SA check — calls POST /strength/pace-gap-check for each full-plan athlete.
-    Sends a bot message if VO2X was adjusted.
+    Daily 06:00 SA check — DISABLED.
+    Strength router is currently disabled (sessions are static, loaded app-side).
+    Re-enable when DB-backed strength tracking returns.
     """
+    return
+    # Original logic preserved below for re-enablement:
     adjusted = skipped = 0
     for athlete in athletes:
         tid = athlete.get("telegram_id")
