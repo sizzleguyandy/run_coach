@@ -216,4 +216,8 @@ async def get_full_plan(telegram_id: str, db: AsyncSession = Depends(get_db)):
         race_date=athlete.race_date,
         start_date=athlete.start_date,
         race_hilliness=athlete.race_hilliness,
+        long_run_day=athlete.long_run_day or "Sat",
+        quality_day=athlete.quality_day or "Tue",
+        training_profile=athlete.training_profile or "conservative",
+        extra_training_days=athlete.extra_training_days or "Thu",
     )

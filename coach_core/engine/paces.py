@@ -108,11 +108,13 @@ def format_pace(min_per_km: float) -> str:
 
 
 def _minutes_to_hm(minutes: float) -> str:
-    """Convert float minutes to Xh YYm string."""
+    """Convert float minutes to Xh YYm string (or YYm for sub-hour times)."""
     h = int(minutes // 60)
     m = int(round(minutes % 60))
     if m == 60:
         h += 1; m = 0
+    if h == 0:
+        return f"{m} min"
     return f"{h}h {m:02d}m"
 
 
@@ -189,7 +191,7 @@ def predict_race_time(
 
     if race_distance in ("ultra_56", "two_oceans", "ultra"):
         # Two Oceans 56km — exponent 1.10
-        ratio = 56.0 / 42.2
+        ratio = 56.0 / 42.195
         mid   = marathon_min * (ratio ** 1.10)
         low   = mid * 0.97   # optimistic (trained, good conditions)
         high  = mid * 1.03   # conservative
@@ -199,7 +201,7 @@ def predict_race_time(
         # Comrades 90km — exponent 1.12 + direction factor
         direction = _comrades_direction(race_date_str)
         dir_factor = 1.08 if direction == "up" else 1.0
-        ratio = 90.0 / 42.2
+        ratio = 90.0 / 42.195
         mid   = marathon_min * (ratio ** 1.12) * dir_factor
         low   = mid * 0.95   # wider spread — ultra variability higher
         high  = mid * 1.05

@@ -19,7 +19,7 @@ from typing import Optional
 
 import math as _math
 
-from coach_core.engine.adaptation import calculate_vo2x_from_race, vo2x_to_5k_minutes
+from coach_core.engine.adaptation import calculate_vo2x_from_race
 
 # Daniels velocity-formula constants (mirrors paces.py — kept local to avoid circular import)
 _DA = 0.000104
@@ -55,7 +55,7 @@ def _daniels_time_minutes(vo2x: float, distance_km: float) -> float:
         marathon_v = (-_DB + _math.sqrt(_DB*_DB + 4.0*_DA*(vo2x*0.81 + _DC))) / (2.0*_DA)
         marathon_min = 42195.0 / marathon_v
         exp = 1.10 if distance_km <= 60.0 else 1.12
-        return marathon_min * (distance_km / 42.2) ** exp
+        return marathon_min * (distance_km / 42.195) ** exp
 
     v = (-_DB + _math.sqrt(_DB*_DB + 4.0*_DA*(vo2x*pct + _DC))) / (2.0*_DA)
     return dist_m / v
@@ -79,7 +79,12 @@ BEGINNER_5K_TIMES: dict[str, float] = {
 
 
 # ── Hill factor per named preset ───────────────────────────────────────────
-# Derived from spec Section 2.1 + existing race_presets.py data.
+# SOURCE OF TRUTH for race hill factors. All race-time predictions and
+# training plan hill-work decisions read from this dict.
+#
+# Frontends (better-together brand.ts) should fetch values via GET /predict/races
+# at runtime rather than hardcoding them. Hardcoded frontend values may drift
+# and will produce slightly different predictions on the client vs the server.
 
 PRESET_HILL_FACTORS: dict[str, float] = {
     # SA races
@@ -237,9 +242,9 @@ def _base_time(inp: PredictionInput) -> tuple[float, Optional[float]]:
         dist = inp.race_distance_km
         if dist <= 10.0:
             multiplier = (dist / 5.0) * 1.05
-        elif dist <= 21.1:
+        elif dist <= 21.0975:
             multiplier = (dist / 5.0) * 1.10
-        elif dist <= 42.2:
+        elif dist <= 42.195:
             multiplier = (dist / 5.0) * 1.20
         else:
             multiplier = (dist / 5.0) * 1.30

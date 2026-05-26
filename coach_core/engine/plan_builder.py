@@ -34,10 +34,13 @@ def build_full_plan(
     paces = calculate_paces(vo2x)
 
     weeks = []
+    # Race day-of-week (Mon..Sun) — used to anchor the race-week template
+    race_day_name = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][race_date.weekday()]
+
     for i, volume in enumerate(volumes, start=1):
         phase = get_phase_for_week(i, phases)
         week_start = start_date + timedelta(weeks=i - 1)
-        days = build_week_days(i, phase, volume, paces, race_distance, phases, race_hilliness, long_run_day, quality_day, extra_training_days)
+        days = build_week_days(i, phase, volume, paces, race_distance, phases, race_hilliness, long_run_day, quality_day, extra_training_days, race_day_name)
         weeks.append({
             "week_number": i,
             "phase": phase,

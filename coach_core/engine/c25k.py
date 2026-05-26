@@ -244,8 +244,8 @@ def compute_transition(
             f"🎉 C25K complete! Your VO2X is estimated at {round(vo2x, 1)} "
             f"(based on {source}).\n\n"
             "You can run a 5K — now let's race one. 🏃\n"
-            "Thousands of South Africans do parkrun every Saturday morning — "
-            "free, timed, and friendly. Find your nearest one at parkrun.co.za "
+            "Millions of runners worldwide do parkrun every Saturday morning — "
+            "free, timed, and friendly. Find your nearest event at parkrun.com "
             "and use it as your first official 5K result.\n\n"
             "Ready to start your first real training plan?"
         ),

@@ -250,6 +250,7 @@ def build_week_days(
     long_run_day: str = "Sat",
     quality_day: str = "Tue",
     extra_training_days: str = "Thu",
+    race_day_name: str = "Sat",
 ) -> dict:
     """
     Build the 7-day session dict for a training week.
@@ -272,16 +273,34 @@ def build_week_days(
     is_race_week = week_number == phases.total_weeks
 
     # ── Race week (fixed regardless of volume) ─────────────────────────────
+    # Race-week sessions are anchored to race_day_name. Days count backwards
+    # from the race so the taper structure is the same regardless of whether
+    # the race is on Saturday, Sunday, or any other day.
     if is_race_week:
-        return {
-            "Mon": {"session": "Rest",          "km": 0,   "notes": "Full rest — race week"},
-            "Tue": {"session": "Easy + Strides", "km": 3.0, "notes": "3 km easy + 4 × 100m strides to sharpen legs"},
-            "Wed": {"session": "Recovery",       "km": 4.0, "notes": "4 km very easy, conversational pace"},
-            "Thu": {"session": "Easy",           "km": 3.0, "notes": "3 km easy + 2 × 100m strides"},
-            "Fri": {"session": "Rest",           "km": 0,   "notes": "Rest or 15 min walk"},
-            "Sat": {"session": "🏁 RACE DAY",   "km": 0,   "notes": "Race day — execute your plan!"},
-            "Sun": {"session": "Rest",           "km": 0,   "notes": "Recovery — celebrate!"},
+        # Each day-of-week → "days before race" offset (0 = race day)
+        race_offset = _day_idx(race_day_name)
+        race_week_template: dict[int, dict] = {
+            0: {"session": "🏁 RACE DAY",   "km": 0,   "notes": "Race day — execute your plan!"},
+            1: {"session": "Rest",          "km": 0,   "notes": "Rest or 15 min walk"},
+            2: {"session": "Easy",          "km": 3.0, "notes": "3 km easy + 2 × 100m strides"},
+            3: {"session": "Recovery",      "km": 4.0, "notes": "4 km very easy, conversational pace"},
+            4: {"session": "Easy + Strides", "km": 3.0, "notes": "3 km easy + 4 × 100m strides to sharpen legs"},
+            5: {"session": "Rest",          "km": 0,   "notes": "Full rest — race week"},
+            6: {"session": "Rest",          "km": 0,   "notes": "Full rest — race week"},
         }
+        # Post-race days (days after race within same calendar week) → recovery
+        result = {}
+        for d in DAYS_ORDER:
+            d_idx = _day_idx(d)
+            days_before = (race_offset - d_idx) % 7
+            if days_before == 0:
+                result[d] = race_week_template[0]
+            elif d_idx > race_offset:
+                # Day falls AFTER race day in the same week → celebration / rest
+                result[d] = {"session": "Rest", "km": 0, "notes": "Recovery — celebrate!"}
+            else:
+                result[d] = race_week_template.get(days_before, {"session": "Rest", "km": 0, "notes": "Rest"})
+        return result
 
     # ── Parse extra training days chosen by athlete ───────────────────────
     extra_days = [d.strip() for d in extra_training_days.split(",")
