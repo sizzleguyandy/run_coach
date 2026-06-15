@@ -1,182 +1,221 @@
-# Run Coach — Complete System Reference
+# Tr3d Coaching Engine — Complete System Reference
 
 > Single-file reference for the entire system: architecture, data flows,
-> formulas, onboarding paths, and worked examples.
-> All values are live outputs from the actual engine.
+> formulas, plan logic, and the full API surface.
+> The engine is a **Daniels-based deterministic running coach** exposed as a
+> FastAPI service that frontend apps (mobile + white-label web clients) call
+> directly over HTTP. All values described here are live outputs from the
+> actual engine.
 
 ---
 
 ## 1. System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        TELEGRAM BOT                             │
-│  /start → onboarding  /plan  /log  /progress  /paces /location  │
-└─────────────────────┬───────────────────────────────────────────┘
-                      │ HTTP (httpx)
-┌─────────────────────▼───────────────────────────────────────────┐
-│                     FASTAPI ENGINE  :8000                        │
-│                                                                  │
-│  routers/athlete.py   POST /athlete/  POST /athlete/c25k        │
-│                        GET /athlete/{id}/paces                   │
-│                       PATCH /athlete/{id}/location               │
-│                        POST /athlete/{id}/graduate               │
-│                                                                  │
-│  routers/plan.py       GET /plan/{id}/current                   │
-│                        GET /plan/{id}/week/{n}                   │
-│                        GET /plan/{id}                            │
-│                                                                  │
-│  routers/log.py        POST /log/run                            │
-│                        GET  /log/{id}/week/{n}/summary          │
-│                        POST /log/{id}/adapt                      │
-│                        POST /log/race                            │
-│                        POST /log/{id}/c25k/adapt                 │
-│                        POST /log/c25k/timetrial                  │
-│                                                                  │
-│  routers/weather.py    GET /weather/{id}/adjustment             │
-│                        GET /weather/{id}/conditions              │
-└─────────────────────┬───────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                    FRONTEND CLIENTS                                │
+│  Mobile app + white-label web clients                              │
+│  Each client stores a per-device athlete ID (UUID) and calls the   │
+│  API directly. Onboarding, plan display, logging, coach chat.      │
+└─────────────────────┬──────────────────────────────────────────────┘
+                      │ HTTPS (JSON)  — CORS-gated
+┌─────────────────────▼──────────────────────────────────────────────┐
+│              FASTAPI ENGINE — "Tr3d Coaching Engine" v1.0.0          │
+│                                                                     │
+│  Routes are served twice:                                           │
+│    /v1/...   versioned (preferred for all new integrations)         │
+│    /...      legacy, unversioned (kept for existing clients)        │
+│                                                                     │
+│  routers/athlete.py   create / fetch / paces / location / anchors   │
+│                       graduate / delete                             │
+│  routers/plan.py      current week / week N / full plan             │
+│  routers/log.py       run / week+month summary / adapt / race /c25k │
+│  routers/weather.py   TRUEPACE adjustment / raw conditions          │
+│  routers/predict.py   race presets / race-time prediction (V2)      │
+│  routers/mobile.py    vo2x calc / link-code lookup / coach chat     │
+│  routers/admin.py     dashboard / stats / athletes / vo2x override  │
+│  (routers/strength.py  DISABLED — strength is static, app-side)     │
+│                                                                     │
+│  GET /health  → {"status":"ok","version":"1.0.0"}                   │
+└─────────────────────┬──────────────────────────────────────────────┘
                       │
-┌─────────────────────▼───────────────────────────────────────────┐
-│                     CORE ENGINE  (coach_core/engine/)            │
-│                                                                  │
-│  phases.py       Phase allocation (I/II/III/IV)                 │
-│  volume.py       Volume progression + distance-specific taper   │
-│  paces.py        VO2X → pace lookup table (Daniels 4th ed)      │
-│  workouts.py     7-day session builder                           │
-│  plan_builder.py Assembles full plan from all engine modules    │
-│  hills.py        Hill work replacement logic                     │
-│  adaptation.py   Closed-loop weekly adjustment + VO2X from race │
-│  c25k.py         Couch to 5K programme (standalone)             │
-│  truepace.py     Weather-based pace adjustment                   │
-│  sa_cities.py    SA city → lat/lon lookup (30 cities)           │
-└─────────────────────┬───────────────────────────────────────────┘
+┌─────────────────────▼──────────────────────────────────────────────┐
+│                CORE ENGINE  (coach_core/engine/)                    │
+│                                                                     │
+│  phases.py            Phase allocation (I/II/III/IV)                │
+│  volume.py            Volume curve + distance-specific taper        │
+│  training_profiles.py Conservative vs Aggressive constants          │
+│  paces.py             Daniels VO2X→pace formula + race prediction   │
+│  workouts.py          Day-aware session builder (3/4/5-day weeks)   │
+│  workout_templates.py Daniels session library (rotation, ultra)     │
+│  plan_builder.py      Assembles the full plan from all modules      │
+│  hills.py             Hill-work replacement logic                   │
+│  adaptation.py        Closed-loop weekly adjustment + VO2X from race│
+│  c25k.py              Couch-to-5K programme (standalone)            │
+│  truepace.py          Weather-based pace adjustment                 │
+│  predictor.py         V2 race-time predictor (onboarding)           │
+│  race_presets*.py     SA + UK race preset catalogues                │
+│  race_knowledge.py    RAG context for the coach chat                │
+└─────────────────────┬──────────────────────────────────────────────┘
                       │
-┌─────────────────────▼───────────────────────────────────────────┐
-│                     DATABASE  (SQLite / aiosqlite)               │
-│  athletes    RunLog    VO2XHistory                               │
-└─────────────────────────────────────────────────────────────────┘
-                      ▲
-                      │ fetch_weather()
-          ┌───────────┴──────────┐
-          │  Open-Meteo API      │
-          │  (no key required)   │
-          │  temp + dew point    │
-          └──────────────────────┘
+┌─────────────────────▼──────────────────────────────────────────────┐
+│                DATABASE  (SQLite / aiosqlite, async)                │
+│  athletes   run_logs   vo2x_history                                 │
+│  strength_templates   strength_logs  (tables exist; module frozen)  │
+└─────────────────────────────────────────────────────────────────────┘
+                      ▲                         ▲
+                      │ fetch_weather()         │ POST /mobile/coach
+          ┌───────────┴──────────┐   ┌──────────┴───────────┐
+          │  Open-Meteo API      │   │  n8n chat webhook    │
+          │  (no key required)   │   │  (URL kept server-   │
+          │  temp + dew point    │   │   side, never to     │
+          └──────────────────────┘   │   the client)        │
+                                     └──────────────────────┘
 ```
 
 ---
 
 ## 2. Data Model
 
-### Athlete table
+### `athletes` table
 
 | Field | Type | Notes |
 |---|---|---|
-| telegram_id | string | Unique — Telegram user ID |
+| id | int PK | |
+| telegram_id | string | **Unique external athlete ID.** Frontends store a per-device UUID and send it here as the athlete identifier. (Column name is historical — it is just the opaque client ID.) |
 | name | string | |
-| plan_type | string | `"full"` or `"c25k"` |
-| current_weekly_mileage | float (km) | Nullable for C25K |
+| plan_type | string | `"full"` (phase-based) or `"c25k"` |
+| current_weekly_mileage | float (km) | Nullable for C25K until graduation |
 | vo2x | float | 30–85. Nullable for C25K |
-| race_distance | string | `"5k"` `"10k"` `"half"` `"marathon"` `"ultra"` |
-| race_hilliness | string | `"low"` `"medium"` `"high"` |
+| race_distance | string | `"5k"` `"10k"` `"half"` `"marathon"` `"ultra_56"` `"ultra_90"` (`"ultra"` kept as legacy alias) |
+| race_hilliness | string | `"low"` `"medium"` `"high"` (default `low`) |
 | race_date | date | |
-| start_date | date | First day of plan |
+| race_name | string | Free-text or preset display name |
+| preset_race_id | string | ID of a chosen race preset (e.g. `two_oceans_marathon`) |
+| start_date | date | First day of plan (snapped to the Monday of the signup week) |
+| long_run_day | string | Preferred long-run day. Default `Sat` |
+| quality_day | string | Preferred hard-session day. Default `Tue` |
+| extra_training_days | string | Comma-separated, e.g. `"Wed,Thu"`. Default `Thu` |
+| training_profile | string | `"conservative"` (default) or `"aggressive"` |
 | c25k_week | int | Current C25K week (1–12). Null for full plans |
-| c25k_completed | bool | True after week 12 + time trial |
-| latitude | float | For TRUEPACE. Optional |
-| longitude | float | For TRUEPACE. Optional |
+| c25k_completed | bool | True after week 12 + transition |
+| latitude / longitude | float | For TRUEPACE. Optional |
 | run_hour | int | Preferred run start hour 0–23. Default 7 |
+| streak_weeks | int | Consecutive compliant weeks (≥80%) |
+| total_badges | int | Badges earned (4 compliant weeks = 1 badge) |
+| link_code | string | Short code (e.g. `ANDY-4821`) to link a profile across clients |
+| anchor_runs | string (JSON) | Up to 2 fixed club/group runs: `[{"day":"Tue","km":10.0}]` |
+| created_at / updated_at | datetime | |
 
-### RunLog table
+### `run_logs` table
 
 | Field | Type | Notes |
 |---|---|---|
 | athlete_id | FK | |
 | week_number | int | |
-| day_name | string | Mon/Tue/Wed/Thu/Fri/Sat/Sun |
-| planned_distance_km | float | From plan |
-| actual_distance_km | float | What was run |
+| day_name | string | Mon…Sun |
+| planned_distance_km | float | From plan (nullable) |
+| actual_distance_km | float | What was run (required) |
 | duration_minutes | float | Optional |
 | rpe | int | 1–10. Optional |
+| notes | string | Optional |
+| prescribed_pace_min_per_km | float | Stored at log time; doesn't shift with VO2X |
+| source | string | `"manual"` or `"treadmill"` |
+| logged_at | datetime | |
 
-### VO2XHistory table
+### `vo2x_history` table
 
-Tracks every VO2X change. Source values: `initial` `race` `time_trial` `adjusted` `c25k_graduation`
+Tracks every VO2X change. `source` values: `initial`, `race`, `adjusted`,
+`c25k_graduation`, `admin_adjusted`, `pace_adjusted`.
+
+### `strength_templates` / `strength_logs`
+
+Tables exist in the schema but the strength **router and tracking are disabled**.
+Strength sessions are currently static and rendered app-side; the backend only
+flags which days are strength days. Re-enable when DB-backed strength tracking
+is built.
 
 ---
 
-## 3. Telegram Onboarding — Complete Flow
+## 3. API Surface
 
-### Question sequence
+Every route below is available **both** at `/v1/<path>` (preferred) and at the
+unversioned `/<path>` (legacy). CORS origins are controlled by the
+`ALLOWED_ORIGINS` env var (comma-separated; defaults to `*` for local dev).
 
-```
-ALL PATHS
-  Q1  Experience level      [3 buttons]
-  Q2  Name                  [free text]
+### Athlete — `/athlete`
 
-  ↓                         ↓                        ↓
-BEGINNER                RETURNING               EXPERIENCED
-(C25K)                  (full plan)             (full plan)
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/athlete/` | Create a full (phase-based) profile |
+| POST | `/athlete/c25k` | Create a C25K beginner profile (no VO2X/race needed) |
+| POST | `/athlete/{id}/graduate` | C25K → full plan (sets VO2X, mileage, race; start_date reset to today) |
+| GET | `/athlete/{id}` | Fetch profile |
+| GET | `/athlete/{id}/paces` | Five Daniels training paces for current VO2X |
+| GET | `/athlete/{id}/anchors` | Current anchor runs |
+| PATCH | `/athlete/{id}/anchors` | Set/clear anchors (max 2, unique valid days, km > 0) |
+| PATCH | `/athlete/{id}/location` | Store lat/lon + run_hour for TRUEPACE |
+| DELETE | `/athlete/{id}` | Delete athlete + cascade run logs + VO2X history |
+| GET | `/athlete/all` | **Admin** (`X-Admin-Key`) — all athletes, used by schedulers |
 
-  Q3  City / TRUEPACE   Q3  Weekly mileage       Q3  Weekly mileage
-      [city keyboard]       [number, km/wk]          [number, km/wk]
-      [Skip option]
-                        Q4  VO2X method           Q4  VO2X method
-                            [3 buttons]               [3 buttons]
-  ↓
-DONE (2 questions           ↓           ↓           ↓
-+ location = 3)        Know it    Estimate    Not sure
-                            │      from race       │
-                        Q4a VO2X  Q4b Dist    (estimated
-                            no.   Q4c Time     silently)
-                            │          │           │
-                            └──────────┴───────────┘
-                                       │
-                        Q5  Race distance     [buttons]
-                        Q6  Race date         [YYYY-MM-DD]
-                        Q7  Hilliness         [3 buttons]
-                        Q8  City / TRUEPACE   [city keyboard]
-                            [Skip option]
-                        ↓
-                        DONE (7–9 questions)
-```
+### Plan — `/plan`
 
-### Q1 buttons and what they trigger
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/plan/{id}/current` | This week's plan (routes to C25K or full). Adds heat note for C25K, a `plan_note` for short (<14wk) plans, and applies the anchor overlay |
+| GET | `/plan/{id}/week/{n}` | A specific week |
+| GET | `/plan/{id}` | The complete plan (all weeks; C25K returns all 12) |
 
-| Button | Detected by | Plan type | VO2X needed |
-|---|---|---|---|
-| 🌱 Complete beginner | "beginner" or "never" | c25k | No |
-| 🏃 Getting back into it | "back" or "occasionally" | full | Yes (with escape) |
-| 💪 I run regularly | anything else | full | Yes (with escape) |
+### Log — `/log`
 
-### Q4 VO2X method detail
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/log/run` | Log a run (supports `source`, `prescribed_pace_min_per_km`) |
+| GET | `/log/{id}/week/{n}/summary` | Week volume / sessions / avg RPE / per-run breakdown |
+| GET | `/log/{id}/month/{year}/{month}/summary` | Calendar-month totals + per-week breakdown |
+| POST | `/log/{id}/adapt?week_number=` | Closed-loop weekly adaptation (volume + VO2X + streaks/badges) |
+| POST | `/log/race` | Log a race result → recompute VO2X (with drop guard, see §8) |
+| POST | `/log/{id}/c25k/adapt?week_number=` | C25K weekly progression |
+| POST | `/log/c25k/timetrial` | Log 5K time trial → compute VO2X + transition data |
 
-**"I know my VO2X"** → athlete enters a number (25–85)
+### Weather (TRUEPACE) — `/weather`
 
-**"Estimate from race"** → pick distance → enter time → auto-calculated:
-```
-Example: 10k in 45:00 → VO2X 45.3
-Example: Half in 1:45:00 → VO2X 42.6
-Example: Marathon in 3:30:00 → VO2X 44.6
-```
-Time formats accepted: `mm:ss`, `h:mm:ss`, or decimal minutes
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/weather/{id}/adjustment?session_type=&run_hour=` | Weather-adjusted paces (C25K gets effort note only) |
+| GET | `/weather/{id}/conditions?run_hour=` | Raw conditions + adjustment factor |
 
-**"Not sure"** → VO2X estimated from mileage:
-```
-< 20 km/wk  → VO2X 35
-20–34       → VO2X 38
-35–49       → VO2X 42
-50–69       → VO2X 46
-70+         → VO2X 50
-```
+### Predict (V2 onboarding) — `/predict`
 
-### Q8 / Q3 City (TRUEPACE)
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/predict/races?country=` | Race presets for the picker. `country` = `ZA` or `GB`; omit for all. Always appends a `custom` entry |
+| POST | `/predict/` | Finish-time range, goal time, VO2X, training focus, warnings |
 
-- Shows 30-city keyboard (SA cities, 2 columns, alphabetical)
-- "⏭️ Skip for now" always available — TRUEPACE is optional
-- City resolves to lat/lon and is stored on the athlete profile
-- Can be changed anytime via `/location`
+### Mobile / white-label — `/mobile`
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/mobile/vo2x?distance_km=&time_minutes=` | Convert a race result to a VO2X score |
+| GET | `/mobile/athlete/by-code/{code}` | Resolve a `link_code` to an athlete's ID + race summary |
+| POST | `/mobile/coach` | Enriched coach-chat proxy → n8n (webhook URL stays server-side) |
+
+### Admin — `/admin` (all require `X-Admin-Key: <ADMIN_SECRET>`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/admin/dashboard` | Web admin UI (browser login with the admin key) |
+| GET | `/admin/stats` | Total athletes + plan-type breakdown |
+| GET | `/admin/athletes` | All athletes with key fields + run-log counts |
+| DELETE | `/admin/athletes/{id}` | Delete athlete + all their data |
+| PATCH | `/admin/athletes/{id}/vo2x` | Override VO2X (20–85) and record in history |
+| POST | `/admin/broadcast` | Mass push (legacy channel — see §13) |
+
+### Meta
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | Liveness — `{"status":"ok","version":"1.0.0"}` |
 
 ---
 
@@ -184,510 +223,429 @@ Time formats accepted: `mm:ss`, `h:mm:ss`, or decimal minutes
 
 ### 4A. Full plan (phase-based)
 
-**Entry requirements:** mileage, VO2X, race distance, race date, hilliness
+**Inputs:** mileage, VO2X, race distance, race date, hilliness, training profile,
+and the athlete's chosen training days.
 
-**Plan duration:** `round((race_date - start_date).days / 7)` clamped to 6–24 weeks
+**Duration:** `round((race_date - start_date).days / 7)` clamped to **6–24 weeks**.
 
-#### Phase allocation
+#### Phase allocation (`phases.py`)
 
-| Total weeks | Phase I | Phase II | Phase III | Phase IV |
+Phase I = Base. Phase II = Early Quality (R-pace). Phase III = Peak Quality
+(Intervals). Phase IV = Race Prep & Taper.
+
+- **Plans ≥ 12 weeks:** Phase I = 6, Phase IV = 6, the remaining weeks split
+  between II and III. For plans **≥ 14 weeks**, Phase II is guaranteed a minimum
+  of 2 weeks (`min(4, max(2, remaining // 3))`), Phase III takes the rest. A
+  12-week plan has no Phase II (all remaining weeks → Phase III).
+- **Short plans (6–11 weeks):** base + taper only — Phase I = `floor(weeks/2)`,
+  Phase IV = `ceil(weeks/2)`, no II/III.
+- Phase I and Phase IV are each floored at 3 weeks.
+
+| Total weeks | I | II | III | IV |
 |---|---|---|---|---|
 | 6 | 3 | 0 | 0 | 3 |
 | 8 | 4 | 0 | 0 | 4 |
 | 10 | 5 | 0 | 0 | 5 |
 | 12 | 6 | 0 | 0 | 6 |
-| 14 | 6 | 0 | 2 | 6 |
-| 16 | 6 | 0 | 4 | 6 |
-| 18 | 6 | 0 | 6 | 6 |
+| 14 | 6 | 2 | 0 | 6 |
+| 16 | 6 | 2 | 2 | 6 |
+| 18 | 6 | 2 | 4 | 6 |
 | 20 | 6 | 2 | 6 | 6 |
-| 22 | 6 | 4 | 6 | 6 |
-| 24 | 6 | 6 | 6 | 6 |
+| 22 | 6 | 3 | 7 | 6 |
+| 24 | 6 | 4 | 8 | 6 |
 
-Phase I = Base & Foundation. Phase II = Early Quality (R-pace). Phase III = Peak Quality (Intervals). Phase IV = Race Prep & Taper.
+#### Volume progression (`volume.py` + `training_profiles.py`)
 
-#### Target peak volume
+Build rate, cutback depth, and the peak cap are governed by `training_profile`:
 
-| Race | Target peak (km) | Guardrail |
+| Constant | Conservative (default) | Aggressive |
 |---|---|---|
-| 5k | 70 | min(70, mileage × 2.5) |
-| 10k | 80 | min(80, mileage × 2.5) |
-| Half | 90 | min(90, mileage × 2.5) |
-| Marathon | 120 | min(120, mileage × 2.5) |
-| Ultra | 140 | min(140, mileage × 2.5) |
+| Weekly build rate | ×1.08 (+8%) | ×1.12 (+12%) |
+| Cutback (every 4th week) | ×0.82 | ×0.88 |
+| Peak cap factor | 2.0 × starting mileage | 3.0 × starting mileage |
 
-Example: athlete at 40 km/wk targeting marathon → `min(120, 100) = 100 km` target peak
-
-#### Volume progression
-
-**Build phase:**
 ```
-Week 1:        = current_weekly_mileage
-Week i % 4=0:  = previous × 0.85   (cutback)
-Week i (else): = min(previous × 1.10, target_peak)
+target_peak = min(PEAK_VOLUME_KM[race], mileage × peak_cap_factor)
+target_peak = max(target_peak, mileage)
+
+Build phase:
+  Week 1        = current_weekly_mileage
+  Week i % 4=0  = previous × cutback_factor
+  Week i (else) = min(previous × build_rate, target_peak)
 ```
 
-**Phase IV taper (distance-specific):**
+**Peak volume targets by distance:**
 
-| Race | Taper weeks | Phase IV behaviour |
-|---|---|---|
-| 5k / 10k | 1 | Gradual –10%/wk to 70% floor, race week = target×35% |
-| Half | 2 | Gradual then 2-week linear taper to target×35% |
-| Marathon | 3 | Gradual then 3-week linear taper to target×35% |
-| Ultra | 3 | Same as marathon |
-
-**Worked example — 18-week marathon, start 40 km/wk:**
-
-| Week | Volume | Note |
-|---|---|---|
-| 1 | 40.0 km | Start |
-| 2 | 44.0 km | +10% |
-| 3 | 48.4 km | +10% |
-| 4 | 41.1 km | Cutback ×0.85 |
-| 5 | 45.2 km | +10% |
-| 6 | 49.7 km | +10% |
-| 7 | 54.7 km | +10% |
-| 8 | 46.5 km | Cutback ×0.85 |
-| 9 | 51.2 km | +10% |
-| 10 | 56.3 km | +10% |
-| 11 | 61.9 km | +10% — actual peak |
-| 12 | 52.6 km | Cutback ×0.85 |
-| 13 | 61.9 km | Phase IV — hold at actual peak |
-| 14 | 61.9 km | Hold at actual peak |
-| 15 | 61.9 km | Hold at actual peak — final hard week |
-| 16 | 52.9 km | Taper begins (step 0.333) |
-| 17 | 44.0 km | Taper (step 0.667) |
-| 18 | 35.0 km | Race week — forced target×0.35 |
-
-> **Phase IV design intent:** The early Phase IV weeks hold at `actual_peak` — these are the final opportunity for high-volume quality work before the taper window begins. Holding (rather than gradually reducing) also eliminates a counter-intuitive volume spike that would otherwise occur if gradual reduction ran below the peak and then the taper interpolation reset back up to `actual_peak` at `taper_start_week`.
-
-#### Weekly session structure
-
-| Day | Session | % of weekly volume |
-|---|---|---|
-| Mon | Rest | 0% |
-| Tue | Quality | ~10–12% (incl WU/CD) |
-| Wed | Recovery | 9% |
-| Thu | Medium-long | 18% |
-| Fri | Recovery (or downhill reps for high hilliness) | 9% |
-| Sat | Long run | 25–30% (race-dependent, marathon capped 32 km) |
-| Sun | Cross-train / Rest (ultra: back-to-back long run) | 0% |
-
-**Long run distances by race:**
-
-| Weekly vol | 5k | 10k | Half | Marathon (capped) |
-|---|---|---|---|---|
-| 50 km | 12.5 km | 12.5 km | 13.8 km | 15.0 km |
-| 70 km | 17.5 km | 17.5 km | 19.2 km | 21.0 km |
-| 90 km | 22.5 km | 22.5 km | 24.8 km | 27.0 km |
-| 110 km | 27.5 km | 27.5 km | 30.3 km | 32.0 km ← cap |
-| 120 km | 30.0 km | 30.0 km | 33.0 km | 32.0 km ← cap |
-
-**Ultra-specific weekly structure (Phases II and III only):**
-
-| Day | Session | Rule |
-|---|---|---|
-| Sat | Long run | 30% of weekly volume, capped at 40 km |
-| Sun | Back-to-back long run | 20% of weekly volume, capped at 40 km |
-
-Both runs at easy (E) pace. Example at 140 km/wk: Saturday = 40 km (capped), Sunday = 28 km. Back-to-back structure is specific to Phases II and III — Phase I and IV use standard Sunday rest.
-
-**Race week sessions (fixed distances, not % of volume):**
-
-| Day | Session |
+| Race | Target peak (km, midpoint) |
 |---|---|
-| Mon | Rest |
-| Tue | 3 km easy + 4 × 100m strides |
-| Wed | 4 km very easy |
-| Thu | 3 km easy + 2 × 100m strides |
-| Fri | Rest |
-| Sat | 🏁 Race day |
-| Sun | Rest |
+| 5k | 70 |
+| 10k | 80 |
+| half | 90 |
+| marathon | 120 |
+| ultra_56 (Two Oceans) | 100 |
+| ultra_90 (Comrades) | 160 |
 
----
+**Distance-specific taper (`TAPER_WEEKS`):** 5k/10k = 1, half = 2, marathon = 3,
+ultra_56 = 2, ultra_90 = 3. Phase IV holds at the actual achieved peak, then
+linearly tapers over the taper window down to `target_peak × 0.35` on race week.
 
-## 5. VO2X Pace System
+#### Template base requirement — 48 km (21 km+ races)
 
-### Lookup table (Daniels 4th edition, selected values)
+Races **21 km and up** (`half`, `marathon`, `ultra_56`, `ultra_90`) require a
+weekly base of **48 km** before the Phase 2 quality templates begin. Phase 1 is
+therefore **dynamic**: it is extended as far as needed so that weekly volume
+reaches 48 km by the time Phase 2 starts. Phase IV (taper) is always preserved;
+the extra base weeks come out of Phases II/III. 5k/10k are exempt.
 
-| VO2X | Easy | Marathon | Threshold | Interval | Repetition |
-|---|---|---|---|---|---|
-| 35 | 5:40 /km | 4:54 /km | 4:15 /km | 3:44 /km | 3:04 /km |
-| 40 | 5:16 /km | 4:30 /km | 3:54 /km | 3:25 /km | 2:50 /km |
-| 45 | 4:54 /km | 4:08 /km | 3:35 /km | 3:07 /km | 2:36 /km |
-| 50 | 4:37 /km | 3:50 /km | 3:20 /km | 2:51 /km | 2:23 /km |
-| 55 | 4:21 /km | 3:34 /km | 3:05 /km | 2:38 /km | 2:11 /km |
-| 60 | 4:07 /km | 3:20 /km | 2:53 /km | 2:26 /km | 2:00 /km |
-| 65 | 3:53 /km | 3:07 /km | 2:41 /km | 2:15 /km | 1:51 /km |
-| 70 | 3:41 /km | 2:56 /km | 2:31 /km | 2:05 /km | 1:42 /km |
+This is wired in `plan_builder._resolve_phases()` using
+`phases.get_phases_with_base()` and `volume.base_phase_for_distance()`. The
+result is reported on the plan in a `base_building` block (also surfaced on the
+live week as `base_building_warning`), with one of four statuses:
 
-Full table covers VO2X 30–85. Non-integer values linearly interpolated.
+| Status | Meaning |
+|---|---|
+| `ok` | Athlete reaches 48 km within the standard 6-week base — no change. |
+| `extended` | Phase 1 lengthened so Phase 2 starts at ≥48 km; II/III shrink. |
+| `no_time` | Not enough weeks before the taper to reach 48 km → base-building + taper only (Phase II = III = 0), with a warning. |
+| `unreachable` | The profile's peak cap (`mileage × peak_cap_factor`) can't reach 48 km → base-only, with a warning. |
 
-### Quality session prescription
+Because the conservative profile builds slowly (+8%/wk with ×0.82 cutbacks), a
+marathoner generally needs to start around **40 km/wk** to unlock templates in an
+18-week plan; lower starts come out base-only. The lever to change that is the
+build/cutback constants in `training_profiles.py`, not the gate.
 
-| Phase | Workout | Pace zone | Min reps | Max reps | Recovery |
-|---|---|---|---|---|---|
-| I | 100m strides | R | 6 | 12 | None (strides) |
-| II | 200m repeats | R | 6 | 16 | Walk/jog 2–3 min |
-| III | 800m intervals | I | 4 | 12 | Jog = rep time |
-| IV | 1600m cruise | T | 3 | 8 | 1 min rest |
+#### Weekly session structure (`workouts.py`)
 
-**Rep count formula:** `floor(weekly_volume × 0.20 / (rep_dist × recovery_factor))` clamped to min/max
+The number of **running days scales with volume**, and sessions are placed on the
+athlete's explicitly chosen days:
 
-**Example — VO2X 50, Phase III, 70 km/wk:**
-```
-quality_km = 70 × 0.20 = 14 km
-reps = floor(14 / (0.8 × 1.5)) = floor(11.67) = 11 → capped at 12
-Workout: 12 × 800m @ 2:51 /km, jog recovery
-Total session: 2 km WU + 12×800m + 1 km CD ≈ 12.6 km
-```
-
-### VO2X from race performance
-
-Formula: Daniels VO₂max equations
-
-| Race | Time | Calculated VO2X |
+| Weekly volume | Running days | Layout |
 |---|---|---|
-| 5k | 15:00 | 69.6 |
-| 5k | 20:00 | 49.8 |
-| 5k | 25:00 | 38.3 |
-| 5k | 30:00 | 30.8 |
-| 10k | 40:00 | 51.9 |
-| 10k | 45:00 | 45.3 |
-| Half | 1:30:00 | 51.0 |
-| Half | 1:45:00 | 42.6 |
-| Marathon | 3:00:00 | 53.5 |
-| Marathon | 3:30:00 | 44.6 |
-| Marathon | 4:00:00 | 37.9 |
+| < 30 km | 3 | quality + medium-long + long |
+| 30–50 km | 4 | quality + recovery + medium-long + long |
+| > 50 km | 5 | quality + 2× recovery + medium-long + long |
+
+Day placement: `long_run_day` → long run; `quality_day` → the hard session;
+`extra_training_days` → recovery / medium-long, assigned by their position in the
+week (the day right after quality is a recovery flush; mid-week extras become
+medium-long). All other days are rest. Minimum session distances are enforced
+(recovery ≥ 4 km, medium-long ≥ 5 km, long ≥ 7 km), and if planned distances
+exceed 110% of weekly volume they're scaled back to ~105%.
+
+**Long run:** `min(0.25 + 0.025 × distance_factor, 0.35)` of weekly volume;
+marathon capped at 32 km; ultra fixed at 30%. Quality sessions are pulled from
+the Daniels template library (`workout_templates.py`) and **rotate** week to week
+within a phase. In Phase III/IV, long runs gain goal-pace / M-pace finishes for
+half and marathon athletes.
+
+**Race week** is anchored to the actual race day-of-week (`race_day_name`) and
+counts backwards, so the taper structure is identical whether the race is on a
+Saturday, Sunday, or any other day:
+
+| Days before race | Session |
+|---|---|
+| 4 | 3 km easy + 4 × 100m strides |
+| 3 | 4 km very easy |
+| 2 | 3 km easy + 2 × 100m strides |
+| 1 | Rest / 15 min walk |
+| 0 | 🏁 Race day |
+| (other) | Rest |
+
+**Ultra athletes** (`ultra_56` / `ultra_90`) get back-to-back long runs on the
+day after `long_run_day` in Phases II and III (both capped at 40 km), with
+walk-break + nutrition guidance baked into the notes.
+
+### 4B. C25K — see §7.
 
 ---
 
-## 6. Hill Work System
+## 5. VO2X Pace System (`paces.py`)
 
-### Replacement matrix
+Paces are **computed directly from the Daniels VO2-velocity formula**, not a
+hard-coded lookup table, so they're exact across the full VO2X range (clamped
+30–85).
 
-| Phase | Low hilliness | Medium hilliness | High hilliness |
+**Intensity zones (% of VO2X):**
+
+| Zone | % VO2X | Use |
+|---|---|---|
+| E — Easy | 70.0% | Conversational |
+| M — Marathon | 81.0% | Goal marathon effort |
+| T — Threshold | 88.0% | Comfortably hard, ~1-hour effort |
+| I — Interval | 97.5% | Near VO2max repetitions |
+| R — Repetition | 104.0% | Fast short reps, full recovery |
+
+**Formula:**
+```
+VO2(v) = -4.60 + 0.182258·v + 0.000104·v²     (v in m/min)
+v = (-0.182258 + √(0.182258² + 4·0.000104·(VO2X·pct + 4.60))) / (2·0.000104)
+pace (min/km) = 1000 / v
+```
+
+Verified anchor (Daniels 4th ed.) — **VO2X 39:** E 6:14, M 5:33, T 5:12,
+I 4:47, R 4:33 /km.
+
+### Race-time prediction (`paces.py: predict_race_time`)
+
+- **5k–marathon:** Daniels velocity formula at the appropriate intensity, with a
+  ±2–2.5% spread.
+- **Ultra:** Modified Riegel from the marathon baseline —
+  `T = T_marathon × (D/42.195)^exp`. Exponent **1.10** for Two Oceans (56 km,
+  ±3%), **1.12** for Comrades (90 km, ±5%).
+- **Comrades** also applies a direction factor (up-run ×1.08, down-run ×1.0;
+  down-run years: 2026, 2028, 2030, 2032) and maps the predicted time to a
+  medal tier (Wally Hayward < 6:00, Gold < 7:30, Bill Rowan < 9:00,
+  Silver < 10:00, Bronze < 11:00, Vic Clapham < 12:00).
+
+### VO2X from race performance (`adaptation.py: calculate_vo2x_from_race`)
+
+Daniels oxygen-cost + %VO2max equations; result clamped to 25–85. The inverse
+(`vo2x_to_5k_minutes`) recovers a 5K time from a VO2X via binary search.
+
+---
+
+## 6. Hill Work System (`hills.py`)
+
+Hill replacement depends on phase and `race_hilliness`:
+
+| Phase | Low | Medium | High |
 |---|---|---|---|
 | I (Base) | Standard strides | Standard strides | Standard strides |
-| II (R-work) | Standard 200s | Alternates weekly | All replaced |
-| III (Intervals) | Standard 800s | Alternates weekly | All replaced |
+| II (R-work) | Standard reps | Alternates weekly | All replaced (hill sprints) |
+| III (Intervals) | Standard intervals | Alternates weekly | All replaced (hill repeats) |
 | IV (Threshold) | Standard cruise | Standard cruise | Standard cruise |
 
-"Alternates weekly" = odd weeks within phase get hills, even weeks get flat intervals.
-
-### Hill workout prescriptions
-
-**Short hill sprints** (replaces Phase II R-work, high hilliness)
-- Grade: 6–10% (steep)
-- Duration: 10–15 sec all-out
-- Reps: `clamp(floor(weekly_volume / 10), 8, 12)`
-- Recovery: walk/jog back down
-
-**Long hill repeats** (replaces Phase III I-work, high hilliness)
-- Grade: 4–6% (moderate)
-- Duration: ~3 min at I-pace effort
-- Reps: `clamp(floor(weekly_volume / 15), 4, 8)`
-- Recovery: jog down, equal time
-
-**Downhill repeats** (added for high hilliness, Phase III/IV, even weeks only)
-- Grade: 2–4% (gentle)
-- Distance: 600m at T-pace effort
-- Reps: `clamp(floor(weekly_volume / 12), 6, 10)` — reduced to 4 in Phase IV
-- Placed on Friday recovery day
+"Alternates weekly" = odd weeks within the phase get hills, even weeks stay flat.
+For **high** hilliness in Phases III/IV, **downhill repeats** are added on
+alternating Fridays (reduced volume during the Phase IV taper), and long runs in
+Phases III/IV carry a hilly-course note.
 
 ---
 
-## 7. Closed-Loop Adaptation
+## 7. Couch to 5K (`c25k.py`)
 
-Run after each completed week via `POST /log/{id}/adapt`.
+Standalone programme — no VO2X, no volume curve, no phases. **12 weeks ×
+3 sessions/week (Mon/Wed/Fri)**; Tue/Thu rest-or-walk, Sat cross-train, Sun rest.
+All runs are conversational effort.
 
-### Volume modifier
+| Week | Session |
+|---|---|
+| 1 | 6 × (1 min run / 2 min walk) |
+| 2 | 6 × (1m30s run / 2 min walk) |
+| 3 | 6 × (2 min run / 2 min walk) |
+| 4 | 5 × (3 min run / 2 min walk) |
+| 5 | 4 × (4 min run / 2 min walk) |
+| 6 | 4 × (5 min run / 2 min walk) |
+| 7 | 3 × (8 min run / 2 min walk) |
+| 8 | 10 / 2 / 10 / 2 / 5 |
+| 9–10 | 30 min continuous |
+| 11 | 30 min continuous + 4 strides |
+| 12 | 30 min continuous + 6 strides + optional 5K time trial |
+
+Distance is estimated at a beginner pace of 8:00 /km.
+
+**Weather guidance:** C25K runs are time-based, so pace is never prescribed.
+When the TRUEPACE factor > 1.05 a warm note is appended; > 1.10 a high-heat note.
+
+**Weekly adaptation (`adapt_c25k_week`):** compliance = actual ÷ planned run
+minutes (3 sessions × that week's run minutes). ≥ 80% advance, 60–79% repeat,
+< 60% drop back one week (floored at week 1).
+
+**Transition to full plan (`compute_transition`):**
+
+1. 5K time trial logged → VO2X via Daniels formula.
+2. No trial → estimate from the week 11/12 continuous-run pace.
+3. Fallback → VO2X 32 (conservative beginner default).
+
+Then `POST /athlete/{id}/graduate` flips `plan_type` to `full` and resets
+`start_date` so week 1 of the full plan begins today.
+
+---
+
+## 8. Closed-Loop Adaptation (`adaptation.py`)
+
+Run after each completed week via `POST /log/{id}/adapt?week_number=`.
+
+### Volume modifier (profile-driven)
 
 ```
 compliance = actual_volume / planned_volume
 
-< 80%    → modifier = 0.85  (–15%)
-80–89%   → modifier = 0.95  (–5%)
-90–105%  → modifier = 1.00  (no change)
-> 105%   → modifier = 1.02  (+2%)
+< 80%    → under_penalty   (conservative −15% / aggressive −10%)
+80–89%   → ×0.95  (−5%)
+90–105%  → ×1.00  (no change)
+> 105%   → over_boost      (conservative +1% / aggressive +3%)
 ```
 
-### RPE override (applied after volume modifier)
+### RPE override (applied after the volume modifier)
 
 ```
-avg_rpe ≥ 9.0  → modifier = min(modifier, 0.85)
-avg_rpe ≥ 8.5  → modifier = min(modifier, 0.90)
+avg_rpe ≥ 9.0  → modifier = min(modifier, rpe9_cap)   (cons 0.85 / aggr 0.90)
+avg_rpe ≥ 8.5  → modifier = min(modifier, rpe85_cap)  (cons 0.90 / aggr 0.95)
 avg_rpe ≤ 5.0 AND compliance ≥ 0.95  → VO2X += 0.5 (max 85)
 ```
 
-### Example outcomes
+A VO2X change is persisted to `vo2x_history` (`source="adjusted"`). If fewer than
+half the week's runs have an RPE, an "add RPE" tip is appended to the notes.
 
-| Compliance | avg RPE | Result |
-|---|---|---|
-| 95% | 6 | Volume unchanged |
-| 70% | 7 | –15% next week |
-| 100% | 9.5 | –15% (RPE override) |
-| 108% | 4.5 | +2% volume + VO2X nudge |
-| 75% | 9.2 | –15% (both agree) |
+### Streaks & badges
+
+`compliance ≥ 80%` counts as a completed week and increments `streak_weeks`;
+4 consecutive completed weeks award a badge (`total_badges += 1`, streak resets).
+A missed week resets the streak to 0.
+
+### Race-result guard (`POST /log/race`)
+
+```
+new ≥ old            → accept (PR / unchanged)
+old − new ≤ 3 pts    → accept with a caution note
+old − new > 3 pts    → reject unless force=true (returns vo2x_updated=false)
+```
+
+All race results are written to `vo2x_history` regardless of whether they update
+the live VO2X. If the current VO2X had been nudged up by the adaptation engine,
+the response explains that the race recalibrates it to a race-validated baseline.
 
 ---
 
-## 8. Couch to 5K (C25K)
+## 9. TRUEPACE — Weather Adjustment (`truepace.py`)
 
-### Programme schedule
+**Source:** Open-Meteo (free, no key) — `temperature_2m` + `dew_point_2m`,
+`timezone=auto`. Cached in-memory for 1 hour per (lat, lon rounded to 2dp,
+run_hour) key.
 
-| Week | Session | Run minutes | Format |
-|---|---|---|---|
-| 1 | Mon/Wed/Fri | 6 min | 6 × (1 min run / 2 min walk) |
-| 2 | Mon/Wed/Fri | 9 min | 6 × (1m30s run / 2 min walk) |
-| 3 | Mon/Wed/Fri | 12 min | 6 × (2 min run / 2 min walk) |
-| 4 | Mon/Wed/Fri | 15 min | 5 × (3 min run / 2 min walk) |
-| 5 | Mon/Wed/Fri | 16 min | 4 × (4 min run / 2 min walk) |
-| 6 | Mon/Wed/Fri | 20 min | 4 × (5 min run / 2 min walk) |
-| 7 | Mon/Wed/Fri | 24 min | 3 × (8 min run / 2 min walk) |
-| 8 | Mon/Wed/Fri | 25 min | 10 / 2 / 10 / 2 / 5 |
-| 9–10 | Mon/Wed/Fri | 30 min | Continuous |
-| 11 | Mon/Wed/Fri | 30 min | Continuous + 4 strides |
-| 12 | Mon/Wed/Fri | 30 min | Continuous + 6 strides + 5k time trial |
-
-No VO2X. All sessions at conversational effort only.
-
-**Weather guidance (TRUEPACE for C25K):**
-
-C25K runs are time-based — pace is never prescribed. When weather conditions are challenging, the system appends an effort note to the session description:
-
-| Factor | Threshold | Message shown |
-|---|---|---|
-| ≤ 1.05 | Normal | No note |
-| 1.05–1.10 | Warm | 🌡️ Warm conditions — keep effort conversational, slow down more than usual |
-| > 1.10 | High heat | 🔴 High heat/humidity — run at very easy effort, shorten session if needed |
-
-Requires athlete location to be set. Degrades silently if weather API is unavailable.
-
-### Weekly adaptation
-
+**Formula:**
 ```
-compliance = actual_run_minutes / planned_run_minutes (3 sessions × week's minutes)
-
-≥ 80%  → advance to next week
-60–79% → repeat same week
-< 60%  → drop back one week (min week 1)
+factor = 1.0
+if dew_point  > 10°C: factor += (dew_point  - 10) × 0.005
+if temperature > 25°C: factor += (temperature - 25) × 0.005
+factor = min(factor, 1.15)        # capped at 15% slowdown
 ```
 
-### Graduation to full plan
-
-After week 12, system needs VO2X. Options:
-
-1. **5k time trial logged** → VO2X calculated directly
-2. **No time trial** → estimated from week 11/12 continuous run pace: `pace × 5.0 km = estimated 5k time`
-3. **Fallback** → VO2X 32 (conservative beginner default)
-
-| 5k Time Trial | VO2X | Starting weekly km |
-|---|---|---|
-| 20:00 | 49.8 | ~9.7 km/wk |
-| 25:00 | 38.3 | ~9.7 km/wk |
-| 30:00 | 30.8 | ~9.7 km/wk |
-
-After graduation: `POST /athlete/{id}/graduate` with VO2X + race details → athlete flips to full plan.
+`high_heat_warning` fires when factor > 1.10; for quality sessions a "focus on
+RPE not pace" note is added. Adjusted paces are derived by scaling each planned
+pace string by the factor. Degrades silently to planned paces if the weather
+fetch fails.
 
 ---
 
-## 9. TRUEPACE — Weather Adjustment
+## 10. Race-Time Predictor (`predictor.py`) — V2 Onboarding
 
-### Data source
+Used during onboarding to set expectations and recommend a plan. Two paths:
 
-Open-Meteo API (free, no key): `https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,dew_point_2m&timezone=auto`
+- **Experienced / known fitness:** VO2X from a recent race (or a directly entered
+  VO2X) → scaled to the target race via the Daniels formula. For distances ≤
+  marathon with a known VO2X, no fitness modifier is applied (it would
+  double-count); for ultras the volume-based modifier is applied.
+- **Beginner:** a predicted 5K time from an ability bucket
+  (`couch` 42m, `occasional` 38m, `run5k_slow` 35m, `run5k_reg` 30m,
+  `run10k_reg` 27m; plus legacy aliases) → scaled up to the target distance.
 
-Cached 1 hour per (lat, lon, run_hour) key.
+The pipeline then applies a fitness modifier (from weekly mileage + longest run),
+an improvement factor (depends on weeks-to-race, plan type, and whether VO2X is
+known), and a final confidence range. Output: finish-time range, goal time,
+VO2X, up to 5 training-focus tips, and warnings. `plan_type` maps to a training
+profile: `balanced → aggressive`, `conservative → conservative`,
+`injury_prone → conservative`.
 
-### Adjustment formula
+### Race presets
 
-```
-adjustment = 1.0
-if dew_point > 10°C:   adjustment += (dew_point - 10) × 0.005
-if temperature > 25°C: adjustment += (temperature - 25) × 0.005
-adjustment = min(adjustment, 1.15)   ← capped at 15% slowdown
-```
+`GET /predict/races` returns the catalogue (SA + UK), each with display name,
+emoji, exact distance, hilliness, hill factor, elevation gain, and country.
+`PRESET_HILL_FACTORS` is the **source of truth** for course hilliness — frontends
+should fetch these at runtime rather than hardcoding them.
 
-### Worked examples (VO2X 50, planned easy pace 4:37 /km)
-
-| Temp | Dew Point | Factor | Easy pace | Warning |
-|---|---|---|---|---|
-| 20°C | 5°C | ×1.000 | 4:37 /km | — |
-| 28°C | 18°C | ×1.055 | 4:52 /km | — |
-| 30°C | 20°C | ×1.075 | 4:58 /km | — |
-| 35°C | 25°C | ×1.125 | 5:12 /km | ⚠️ High heat |
-| 45°C | 30°C | ×1.150 | 5:19 /km | ⚠️ High heat |
-
-High heat warning fires when factor > 1.10. At this threshold the system also shows: *"Consider running earlier or reducing distance."*
-
-For quality sessions (intervals, threshold): additional note shown — *"Focus on RPE rather than exact pace."*
-
-### SA city lookup (for `/location` command)
-
-30 cities pre-loaded with exact coordinates. Aliases supported.
-
-| Input | Resolves to | Coordinates |
-|---|---|---|
-| "Cape Town", "CT", "capetown", "kaapstad" | Cape Town | -33.9249, 18.4241 |
-| "Joburg", "Jozi", "JHB", "Egoli" | Johannesburg | -26.2041, 28.0473 |
-| "PE", "Port Elizabeth", "Nelson Mandela Bay" | Gqeberha | -33.9608, 25.6022 |
-| "PMB", "Maritzburg" | Pietermaritzburg | -29.6006, 30.3794 |
-| "Mbombela" | Nelspruit | -25.4660, 30.9707 |
-| "Mangaung", "Bloem" | Bloemfontein | -29.1167, 26.2167 |
-| "Tshwane", "PTA" | Pretoria | -25.7479, 28.2293 |
-
-Matching order: exact name → exact alias → prefix match → alias prefix match.
+Current presets include — **SA:** Comrades, Two Oceans, Cape Town, Soweto,
+Durban, Knysna Forest. **UK:** London, Manchester, Brighton, Edinburgh,
+Yorkshire, Loch Ness. A `custom` option is always appended.
 
 ---
 
-## 10. Complete User Journey Examples
+## 11. Coach Chat (`mobile.py: POST /mobile/coach`)
 
-### Example A — Beginner (C25K → Full plan)
-
-```
-Day 1
-  /start
-  → Q1: "🌱 Complete beginner"
-  → Q2: "Sarah"
-  → Q3: "Cape Town" (selected from keyboard)
-  → Profile created. Week 1 delivered:
-    Mon/Wed/Fri: 6 × (1 min run / 2 min walk)
-    TRUEPACE active (Cape Town weather)
-
-Week 12 (12 weeks later)
-  Athlete runs 5k in 28:00
-  → /log → logs time trial
-  → POST /log/c25k/timetrial → VO2X 32.5 calculated
-  → System sends graduation message
-
-  Athlete chooses to target a half marathon:
-  → POST /athlete/{id}/graduate
-    { vo2x: 32.5, race_distance: "half", race_date: "2027-03-15",
-      race_hilliness: "low", current_weekly_mileage: 18 }
-  → Full plan generated: 16 weeks, VO2X 32.5
-```
-
-### Example B — Experienced runner (full plan, race estimate)
-
-```
-/start
-→ Q1: "💪 I run regularly"
-→ Q2: "James"
-→ Q3: 55 km/wk
-→ Q4: "🏁 Estimate from a recent race time"
-→ Q4b: "10k"
-→ Q4c: "44:15"   (parsed as 44.25 min)
-   → VO2X calculated: 45.8
-   → System confirms: "Your VO2X is 45.8"
-→ Q5: "marathon"
-→ Q6: "2026-09-20"   (26 weeks out)
-→ Q7: "🌄 Medium (rolling hills)"
-→ Q8: "Durban"
-→ Plan generated:
-   - 24 weeks, VO2X 45.8
-   - Phases: I=6, II=6, III=6, IV=6
-   - Target peak: min(120, 55×2.5=137.5) = 120 km
-   - Hill work: Phase II and III alternate weeks (medium hilliness)
-   - TRUEPACE: Durban coords stored, 7 AM default
-```
-
-### Example C — `/plan` command with TRUEPACE
-
-```
-Athlete in Johannesburg, early March (T=28°C, dew=16°C)
-
-/plan
-→ Week 15 (Phase III): 6 × 800m @ I pace
-  Planned I pace: 3:07 /km (VO2X 50)
-
-→ TRUEPACE block appended:
-  "🌡️ 28°C, dew point 16°C — adjust pace by +5.0%"
-  Adjusted paces:
-    Easy:        4:37 → 4:51 /km
-    Threshold:   3:20 → 3:30 /km
-    Interval:    2:51 → 3:00 /km  ← use this for today's 800s
-  "⚡ For hard efforts, focus on RPE rather than exact pace."
-```
-
-### Example D — Weekly adaptation
-
-```
-Athlete planned 80 km, ran 62 km (77% compliance), avg RPE 8.7
-
-POST /log/{id}/adapt
-→ compliance = 0.775 → modifier = 0.85 (–15%)
-→ RPE 8.7 ≥ 8.5 → modifier = min(0.85, 0.90) = 0.85 (unchanged)
-→ planned_next_week = 76 km
-→ adjusted_next_week = 76 × 0.85 = 64.6 km
-→ coaching_notes:
-   "⚠️ Only 77% of planned volume — next week reduced by 15%."
-   "🟠 High RPE (8.7) — volume trimmed, keep intensity low."
-```
+The client sends `{athlete_id, question}`. The server enriches it with the full
+athlete + current-week context (name, race, training profile, paces, phase,
+week number, weeks-to-race, taper-start week/date, RAG race knowledge), forwards
+it to the configured **n8n** webhook, and returns the AI reply. The webhook URL
+(`N8N_CHAT_WEBHOOK`) is never exposed to the client. If n8n is unconfigured or
+times out (90 s read), a friendly fallback message is returned.
 
 ---
 
-## 11. File Map
+## 12. File Map
 
 ```
 run_coach/
-├── run.sh                              Starts API + bot
+├── run.sh
 ├── requirements.txt
-├── .env.example                        TELEGRAM_BOT_TOKEN, API_BASE_URL, DATABASE_URL
+├── .env.example
 │
 ├── coach_core/
-│   ├── main.py                         FastAPI app + lifespan init_db()
-│   ├── database.py                     Async SQLite session
-│   ├── models.py                       Athlete, RunLog, VO2XHistory
+│   ├── main.py            FastAPI app, CORS, /v1 + legacy routers, /health
+│   ├── database.py        Async SQLite session + init_db()
+│   ├── models.py          Athlete, RunLog, VO2XHistory, Strength* (frozen)
 │   │
 │   ├── engine/
-│   │   ├── phases.py                   get_phases(weeks) → PhaseAllocation
-│   │   ├── volume.py                   build_volume_curve() + get_taper_weeks()
-│   │   ├── paces.py                    calculate_paces(vo2x) → Paces (lookup table)
-│   │   ├── workouts.py                 build_week_days() → 7-day session dict
-│   │   ├── plan_builder.py             build_full_plan() → complete plan dict
-│   │   ├── hills.py                    should_replace_with_hills() + hill prescriptions
-│   │   ├── adaptation.py               adapt_next_week() + calculate_vo2x_from_race()
-│   │   ├── c25k.py                     build_c25k_week() + adapt_c25k_week() + compute_transition()
-│   │   ├── truepace.py                 fetch_weather() + compute_adjustment() + get_truepace_block()
-│   │   └── sa_cities.py                find_city() + 30-city lookup table
+│   │   ├── phases.py
+│   │   ├── volume.py
+│   │   ├── training_profiles.py
+│   │   ├── paces.py
+│   │   ├── workouts.py
+│   │   ├── workout_templates.py
+│   │   ├── plan_builder.py
+│   │   ├── hills.py
+│   │   ├── adaptation.py
+│   │   ├── c25k.py
+│   │   ├── truepace.py
+│   │   ├── predictor.py
+│   │   ├── race_presets.py / race_presets_sa.py / race_presets_uk.py
+│   │   ├── race_knowledge.py
+│   │   └── anchor_constants.py
 │   │
 │   └── routers/
-│       ├── athlete.py                  /athlete  (create, get, paces, location, graduate)
-│       ├── plan.py                     /plan     (current, week/{n}, full)
-│       ├── log.py                      /log      (run, summary, adapt, race, c25k)
-│       └── weather.py                  /weather  (adjustment, conditions)
+│       ├── athlete.py
+│       ├── plan.py
+│       ├── log.py
+│       ├── weather.py
+│       ├── predict.py
+│       ├── mobile.py
+│       └── admin.py
 │
-└── telegram_bot/
-    ├── bot.py                          Application builder + all handlers registered
-    ├── config.py                       TELEGRAM_TOKEN + API_BASE_URL from .env
-    ├── formatting.py                   format_week() + format_paces() + format_c25k_week()
-    │
-    └── handlers/
-        ├── onboarding.py               11-state ConversationHandler (all 3 paths)
-        ├── plan_handler.py             /plan  /paces  /location
-        └── log_handler.py             /log  /progress
+└── (telegram_bot/ — legacy, no longer the primary client; see §13)
 ```
 
 ---
 
-## 12. Deployment
+## 13. Deployment & Configuration
 
 ```bash
-# 1. Clone and configure
-cp .env.example .env
-# Edit .env: set TELEGRAM_BOT_TOKEN
-
-# 2. Start both services
-./run.sh
-
+cp .env.example .env       # then edit values
+./run.sh                   # starts the API
 # API docs:  http://localhost:8000/docs
-# Bot:       active in Telegram once token is set
+# Admin UI:  http://localhost:8000/v1/admin/dashboard
 ```
 
 **Environment variables:**
 
-| Variable | Required | Default |
-|---|---|---|
-| TELEGRAM_BOT_TOKEN | Yes | — |
-| API_BASE_URL | No | http://localhost:8000 |
-| DATABASE_URL | No | sqlite+aiosqlite:///./coach.db |
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| ALLOWED_ORIGINS | No | `*` | Comma-separated CORS allowlist (set in production) |
+| ADMIN_SECRET | For admin routes | — | `X-Admin-Key` value for `/admin/*` and `/athlete/all` |
+| N8N_CHAT_WEBHOOK | For coach chat | — | n8n webhook for `/mobile/coach` |
+| API_BASE_URL | No | `http://localhost:8000` | Used internally by the coach-chat context builder |
+| DATABASE_URL | No | `sqlite+aiosqlite:///./coach.db` | DB connection string |
+
+### Known legacy references (cleanup backlog)
+
+The Telegram bot has been retired as the primary client, but a few server-side
+references still assume it and should be cleaned up:
+
+- `POST /admin/broadcast` pushes via the Telegram Bot API and needs
+  `TELEGRAM_BOT_TOKEN`. It has no frontend-app equivalent yet.
+- `log.py` fires VO2X "level-up" notifications by importing `telegram_bot`
+  (wrapped in try/except, so it no-ops if the package is absent).
+- The `athletes.telegram_id` column and `link_code` flow are named after the
+  bot but now serve as the generic client athlete ID / cross-client link.
+- The `telegram_bot/` package and its mentions in `run.sh` / `.env.example`
+  are dormant.
+```
