@@ -139,6 +139,13 @@ async def get_current_week_plan(telegram_id: str, db: AsyncSession = Depends(get
     week = dict(week)
     week["total_weeks"] = total_weeks  # consumed by coach_chat and dashboard
 
+    # Surface the 48 km template-base outcome (21 km+ races only)
+    base_building = plan.get("base_building")
+    if base_building:
+        week["base_building"] = base_building
+        if base_building.get("warning"):
+            week["base_building_warning"] = base_building["warning"]
+
     # Inject a coaching note for short plans that have no speed or quality phases
     if total_weeks < 14 and not week.get("plan_note"):
         week["plan_note"] = (
