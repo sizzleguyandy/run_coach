@@ -1,5 +1,5 @@
 from typing import List
-from coach_core.engine.phases import PhaseAllocation
+from coach_core.engine.phases import PhaseAllocation, TEMPLATE_BASE_KM
 from coach_core.engine.training_profiles import get_profile
 
 # Midpoint of Daniels target peak ranges per race distance
@@ -31,6 +31,81 @@ def get_taper_weeks(race_distance: str) -> int:
     return TAPER_WEEKS.get(race_distance, 2)
 
 
+def _target_peak(current_weekly_mileage: float, race_distance: str, profile: dict) -> float:
+    """Peak volume target for the plan, capped by the profile's peak factor and
+    floored at the starting mileage. Single source of truth used by both the
+    volume curve and the base-building gate."""
+    target_peak = PEAK_VOLUME_KM.get(race_distance, 90.0)
+    target_peak = min(target_peak, current_weekly_mileage * profile["peak_cap_factor"])
+    target_peak = max(target_peak, current_weekly_mileage)
+    return target_peak
+
+
+def _simulate_build(
+    current_weekly_mileage: float,
+    target_peak: float,
+    build_rate: float,
+    cutback_factor: float,
+    max_weeks: int = 60,
+) -> List[float]:
+    """Simulate the weekly build curve (same rules as build_volume_curve's
+    build phase): +build_rate each week, ×cutback every 4th week, capped at
+    target_peak. Returns the per-week volumes."""
+    vols: List[float] = []
+    for w in range(1, max_weeks + 1):
+        if w == 1:
+            vol = current_weekly_mileage
+        elif w % 4 == 0:
+            vol = vols[-1] * cutback_factor
+        else:
+            vol = min(vols[-1] * build_rate, target_peak)
+        vols.append(round(vol, 1))
+    return vols
+
+
+def base_phase_for_distance(
+    current_weekly_mileage: float,
+    race_distance: str,
+    training_profile: str = "conservative",
+    target_km: float = TEMPLATE_BASE_KM,
+) -> tuple["int | None", bool, float]:
+    """
+    Work out when an athlete reaches the template base mileage.
+
+    Returns (phase2_start_week, reachable, target_peak):
+      phase2_start_week: earliest 1-based week at which weekly volume reaches
+                         `target_km` on a build (non-cutback) week — the soonest
+                         Phase 2 quality templates may begin. None if never reached.
+      reachable:         False when the profile's peak cap keeps the build below
+                         `target_km` no matter how many weeks are available.
+      target_peak:       the peak the build is capped to (for messaging).
+    """
+    profile     = get_profile(training_profile)
+    target_peak = _target_peak(current_weekly_mileage, race_distance, profile)
+
+    # Already at or above the base.
+    if current_weekly_mileage >= target_km:
+        return 1, True, target_peak
+
+    # Peak cap will never let the build reach the base.
+    if target_peak < target_km:
+        return None, False, target_peak
+
+    vols = _simulate_build(
+        current_weekly_mileage,
+        target_peak,
+        profile["build_rate"],
+        profile["cutback_factor"],
+    )
+    # First build (non-cutback) week at/above the base — gives a stable base
+    # rather than a transient cutback-week reading.
+    for w, v in enumerate(vols, start=1):
+        if v >= target_km and w % 4 != 0:
+            return w, True, target_peak
+
+    return None, False, target_peak
+
+
 def build_volume_curve(
     current_weekly_mileage: float,
     race_distance: str,
@@ -49,9 +124,7 @@ def build_volume_curve(
       ultra_90 (Comrades):   160km midpoint — conservative gets 120km, aggressive 160km
     """
     profile     = get_profile(training_profile)
-    target_peak = PEAK_VOLUME_KM.get(race_distance, 90.0)
-    target_peak = min(target_peak, current_weekly_mileage * profile["peak_cap_factor"])
-    target_peak = max(target_peak, current_weekly_mileage)
+    target_peak = _target_peak(current_weekly_mileage, race_distance, profile)
 
     taper_weeks = get_taper_weeks(race_distance)
     desired_final_volume = target_peak * 0.35
