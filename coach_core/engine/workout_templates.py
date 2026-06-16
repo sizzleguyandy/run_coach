@@ -316,19 +316,35 @@ def get_template_session(
         "M": format_pace(paces.marathon_min_per_km),
     }
 
-    quality_km = weekly_volume_km * 0.20
+    # ── Daniels per-pace quality-volume caps ────────────────────────────────
+    # quality_work_km = distance run AT the hard pace (not WU/CD or recovery
+    # jogs). These caps are Daniels-exact and govern injury-safe hard dosing:
+    #   R: lesser of 5% weekly or 8 km        (speed/economy — strictly limited)
+    #   I: lesser of 8% weekly or 10 km       (VO2max — 10,000 m hard ceiling)
+    #   T: 10% weekly, minimum 6.4 km         (threshold — sustainable hard work)
+    # Total session distance = WU + CD + hard work + recovery jogs. R/I use ~equal
+    # jog recovery (≈ work distance); T uses short rests (≈ 0.25× work).
+    def _quality_work_km(p: int) -> float:
+        if p == 2:
+            return min(weekly_volume_km * 0.05, 8.0)
+        if p == 3:
+            return min(weekly_volume_km * 0.08, 10.0)
+        return max(weekly_volume_km * 0.10, 6.4)   # phase 4 / threshold
 
     if phase == 1:
-        # Base phase — strides, rotating through the stride sessions
+        # Base phase — strides, rotating through the stride sessions.
+        # Strides are ~10–15 s bursts: negligible hard volume (~0.6 km), run as
+        # part of an easy day. WU/CD bracket a short session.
         idx = (week_in_phase - 1) % len(STRIDE_SESSIONS)
         session_text = _format_session(STRIDE_SESSIONS[idx], pace_strs)
+        work_km = 0.6
         return {
             "type": "Strides",
             "detail": session_text,
             "warmup_km": 2.0,
             "cooldown_km": 2.0,
-            "quality_km": round(min(quality_km, 2.0), 1),
-            "total_km": round(min(quality_km, 2.0) + 4.0, 1),
+            "quality_km": round(work_km, 1),
+            "total_km": round(work_km + 4.0, 1),
         }
 
     if phase == 2:
@@ -336,13 +352,15 @@ def get_template_session(
         idx = (week_in_phase - 1) % len(cat["sessions"])
         session_text = _format_session(cat["sessions"][idx], pace_strs)
         wu_cd = cat["wu_cd_km"]
+        work_km = _quality_work_km(2)            # R-pace hard volume (≤5% / 8 km)
+        total_km = wu_cd + work_km * 2.0          # equal jog recovery
         return {
             "type": f"Repetitions (Cat {cat['label']})",
             "detail": session_text,
             "warmup_km": 2.0,
             "cooldown_km": 1.0,
-            "quality_km": round(quality_km, 1),
-            "total_km": round(quality_km + wu_cd, 1),
+            "quality_km": round(work_km, 1),
+            "total_km": round(total_km, 1),
         }
 
     if phase == 3:
@@ -350,13 +368,15 @@ def get_template_session(
         idx = (week_in_phase - 1) % len(cat["sessions"])
         session_text = _format_session(cat["sessions"][idx], pace_strs)
         wu_cd = cat["wu_cd_km"]
+        work_km = _quality_work_km(3)            # I-pace hard volume (≤8% / 10 km)
+        total_km = wu_cd + work_km * 2.0          # jog recovery ≈ work bout
         return {
             "type": f"Intervals (Cat {cat['label']})",
             "detail": session_text,
             "warmup_km": 2.0,
             "cooldown_km": 1.0,
-            "quality_km": round(quality_km, 1),
-            "total_km": round(quality_km + wu_cd, 1),
+            "quality_km": round(work_km, 1),
+            "total_km": round(total_km, 1),
         }
 
     # Phase 4 — Threshold
@@ -364,13 +384,15 @@ def get_template_session(
     idx = (week_in_phase - 1) % len(cat["sessions"])
     session_text = _format_session(cat["sessions"][idx], pace_strs)
     wu_cd = cat["wu_cd_km"]
+    work_km = _quality_work_km(4)                # T-pace hard volume (10%, ≥6.4 km)
+    total_km = wu_cd + work_km * 1.25             # short rests between T reps
     return {
         "type": f"Threshold (Cat {cat['label']})",
         "detail": session_text,
         "warmup_km": 2.0,
         "cooldown_km": 1.0,
-        "quality_km": round(quality_km, 1),
-        "total_km": round(quality_km + wu_cd, 1),
+        "quality_km": round(work_km, 1),
+        "total_km": round(total_km, 1),
     }
 
 

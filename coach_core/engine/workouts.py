@@ -171,6 +171,36 @@ def _scale_sessions(targets: dict[str, float], weekly_volume: float) -> dict[str
     return {k: round(v, 1) for k, v in targets.items()}
 
 
+def _rebalance_to_target(days: dict, weekly_volume: float) -> None:
+    """
+    Distribute any weekly-volume shortfall across the easy aerobic days.
+
+    Quality days carry only their true (small) Daniels session distance — hard
+    work + recovery jogs + WU/CD — so the rest of the week's mileage is
+    accumulated on the recovery / medium-long E days (exactly as Daniels builds
+    volume). This keeps total weekly volume on target without inflating the
+    hard session. Long runs are left at their principled cap and are never
+    grown; no easy day is pushed above the long run. Mutates `days` in place.
+    """
+    ABSORB = {"Recovery Run", "Medium-Long Run"}
+    current = sum(d.get("km", 0) for d in days.values())
+    shortfall = round(weekly_volume - current, 1)
+    if shortfall <= 0:
+        return
+    absorbers = [d for d in days.values()
+                 if d.get("session") in ABSORB and d.get("km", 0) > 0]
+    if not absorbers:
+        return
+    long_km = max((d.get("km", 0) for d in days.values()
+                   if d.get("session") == "Long Run"), default=weekly_volume)
+    base = sum(d["km"] for d in absorbers)
+    for d in absorbers:
+        bumped = round(min(d["km"] + shortfall * (d["km"] / base), long_km), 1)
+        d["km"] = bumped
+        descriptor = "very easy" if d["session"] == "Recovery Run" else "easy"
+        d["notes"] = f"{bumped} km {descriptor}"
+
+
 def _long_run_notes(
     long_run_km: float,
     paces: Paces,
@@ -315,11 +345,12 @@ def build_week_days(
 
     # ── 3-DAY WEEK (< 30 km) ──────────────────────────────────────────────
     if num_days == 3:
-        # Spec formula: quality = 20% of volume + 3 km WU/CD overhead
-        # long = 40% of volume (higher pct compensates for fewer days)
+        # Quality day carries only its true Daniels session distance; the
+        # long run compensates for the low day-count, and the medium-long E day
+        # absorbs the rest of the weekly volume (see _rebalance_to_target).
         # Minimums re-enforced after scaling (at very low volume, totals
         # may slightly exceed ceiling — meaningful sessions take priority)
-        q_distance  = round(weekly_volume * 0.20 + 3.0, 1)
+        q_distance  = quality["total_km"]
         long_run_km = max(round(weekly_volume * 0.40, 1), MIN_LONG_KM)
         medium_km   = max(round(weekly_volume * 0.30, 1), MIN_MEDIUM_LONG_KM)
 
@@ -358,6 +389,8 @@ def build_week_days(
                 }
             else:
                 result[d] = {"session": "Rest", "km": 0, "notes": "Full rest"}
+        if race_distance not in ("ultra", "ultra_56", "ultra_90"):
+            _rebalance_to_target(result, weekly_volume)
         return result
 
     # ── 4-DAY WEEK (30–50 km) ─────────────────────────────────────────────
@@ -410,6 +443,8 @@ def build_week_days(
                 }
             else:
                 result[d] = {"session": "Rest", "km": 0, "notes": "Rest or easy walk"}
+        if race_distance not in ("ultra", "ultra_56", "ultra_90"):
+            _rebalance_to_target(result, weekly_volume)
         return result
 
     # ── 5-DAY WEEK (> 50 km) — original full-week logic ───────────────────
@@ -516,5 +551,8 @@ def build_week_days(
         if wip % 2 == 0:
             dl = get_downhill_session(weekly_volume, is_taper=(phase == 4))
             days["Fri"] = dl
+
+    if race_distance not in ("ultra", "ultra_56", "ultra_90"):
+        _rebalance_to_target(days, weekly_volume)
 
     return days
