@@ -239,7 +239,11 @@ WHERE request_sent_at IS NOT NULL AND confirmation_received=0
 
 ### 7c. DELETE — legacy Gmail crons (n8n replaces them)
 Remove: **Email Watch (15-min)**, **Email Check 9am**, **Email Check 1pm**, **Email Check 5pm**.
-Keep: **Daily Task List (7am)**. Review **Webhook Monitor (10-min)** — likely redundant now.
+
+**KEEP — essential to the new flow:**
+- **Webhook Monitor (10-min)** — this is how the emails n8n pushes to `/hooks/agent`
+  get picked up and processed. It is now part of the ingestion path, **do not remove**.
+- **Daily Task List (7am)** — unchanged.
 
 > Before editing the scheduler, inspect existing jobs and preserve/merge — don't blow away
 > unrelated entries.
