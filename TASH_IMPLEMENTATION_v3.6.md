@@ -31,6 +31,28 @@ Worked example:
 
 ---
 
+## 0.5 Channels — CRITICAL, do not mix these up
+
+| Stream | Channel | Notes |
+|---|---|---|
+| OTA booking confirmations (Booking.com / Airbnb / VRBO) | **Email** → n8n → `/hooks/agent` | Inbound only. Deduped via `processed_emails`. |
+| **Imperial Cleaning — ALL communication** | **WhatsApp ONLY** (+27 61 381 5761) | Both directions: every booking request, reminder, resend goes OUT on WhatsApp; every Imperial reply (`confirmed`/`booked`, questions, changes) comes IN on WhatsApp — **never email.** |
+| Alerts / escalations to Andrew | **WhatsApp** (+27 83 792 1713) | |
+
+**Consequences the agent MUST honour:**
+- Phases 2, 4, 6 (and any resend) → send via **WhatsApp** to Imperial. Never email Imperial.
+- **Phase 3 confirmation detection** reads the **Imperial WhatsApp thread**, NOT the email
+  pipeline. The n8n/email webhook will never carry an Imperial reply.
+- The **Escalation Check** cron measures time since the WhatsApp request was sent and looks for
+  a WhatsApp reply — not an email.
+- Out-of-scope Imperial WhatsApp message → DO NOT REPLY, forward to Andrew on WhatsApp.
+
+> ⚠️ DEPENDENCY: this assumes the agent can **read inbound WhatsApp from Imperial** to detect
+> `confirmed`/`booked` and drive Phase 3 + escalation. If that inbound-WhatsApp capability is
+> not wired, Phase 3 cannot auto-complete — confirm this exists before going live.
+
+---
+
 ## 1. Back up first (do this before anything else)
 
 ```
@@ -138,8 +160,9 @@ Trigger: POST /hooks/agent from n8n. Payload: From, Subject, Message ID, Date, C
      @booking.com           → Booking.com
      @airbnb.com            → Airbnb
      @vrbo.com / @homeaway  → VRBO
-     +27 61 381 5761        → Imperial reply (handle per Phase 3/escalation)
      else                   → inquiry / guest message / other → forward/queue per policy
+   (Imperial Cleaning is NOT in this list — Imperial communicates by WhatsApp ONLY,
+    never email. See "Channels" above.)
 3. Booking confirmation → extract guest_name, check_in, check_out, amount (You earn),
    confirmation_code, platform → INSERT into bookings (status='confirmed', source='email',
    source_message_id=<Message ID>).
