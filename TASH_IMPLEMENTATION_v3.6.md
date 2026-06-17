@@ -47,9 +47,10 @@ Worked example:
   a WhatsApp reply — not an email.
 - Out-of-scope Imperial WhatsApp message → DO NOT REPLY, forward to Andrew on WhatsApp.
 
-> ⚠️ DEPENDENCY: this assumes the agent can **read inbound WhatsApp from Imperial** to detect
-> `confirmed`/`booked` and drive Phase 3 + escalation. If that inbound-WhatsApp capability is
-> not wired, Phase 3 cannot auto-complete — confirm this exists before going live.
+> ✅ DEPENDENCY CONFIRMED: Tash can both **read and send** WhatsApp. Imperial replies
+> (`confirmed`/`booked`, questions, changes) are read directly from the WhatsApp thread, so
+> Phase 3 confirmation and the Escalation Check run fully automatically — no manual fallback
+> required.
 
 ---
 
