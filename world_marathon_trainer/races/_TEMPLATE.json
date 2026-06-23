@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0",
+
+  "identity": {
+    "id": "",
+    "name": "",
+    "city": "",
+    "country": "",
+    "distance_km": 0.0,
+    "race_month": 0,
+    "typical_date": "",
+    "loop_or_point_to_point": "",
+    "world_major": false,
+    "edition_notes": ""
+  },
+
+  "course_profile": {
+    "surface": "",
+    "net_elevation_m": 0,
+    "total_ascent_m": 0,
+    "total_descent_m": 0,
+    "elevation_profile": [
+      { "km": 0, "elevation_m": 0 }
+    ],
+    "key_segments": [
+      {
+        "name": "",
+        "start_km": 0.0,
+        "end_km": 0.0,
+        "elevation_change_m": 0,
+        "avg_grade_pct": 0.0,
+        "training_note": ""
+      }
+    ],
+    "technical_notes": ""
+  },
+
+  "environment": {
+    "avg_temp_c": 0.0,
+    "temp_range_c": [0.0, 0.0],
+    "avg_humidity_pct": 0,
+    "wind_exposure": "",
+    "rain_probability_pct": 0,
+    "altitude_m": 0,
+    "sun_exposure": "",
+    "typical_start_time": ""
+  },
+
+  "field_dynamics": {
+    "field_size": 0,
+    "wave_start": false,
+    "start_congestion_km": 0.0,
+    "pacing_culture": "",
+    "crowd_support": ""
+  },
+
+  "training_overlay": {
+    "hill_loading_weeks": 0,
+    "downhill_loading": false,
+    "eccentric_focus": false,
+    "heat_prep_required": false,
+    "altitude_prep_required": false,
+    "back_to_backs": false,
+    "race_profile_long_run": "",
+    "phase3_session_modifiers": [],
+    "phase4_session_modifiers": []
+  },
+
+  "race_strategy": {
+    "recommended_pacing": "",
+    "danger_zones": [],
+    "split_strategy": "",
+    "fuelling_notes": ""
+  },
+
+  "qualifying": {
+    "is_qualifier": false,
+    "qualifier_for": "",
+    "standards_note": "",
+    "registration_window": ""
+  },
+
+  "knowledge_base": {
+    "course_guide": "",
+    "common_mistakes": [],
+    "gear_notes": "",
+    "sources": []
+  }
+}
