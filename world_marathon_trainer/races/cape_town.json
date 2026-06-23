@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0",
+  "identity": {
+    "id": "cape_town",
+    "name": "Sanlam Cape Town Marathon",
+    "city": "Cape Town",
+    "country": "South Africa",
+    "distance_km": 42.195,
+    "race_month": 5,
+    "typical_date": "late May (Sunday)",
+    "loop_or_point_to_point": "loop",
+    "world_major": true,
+    "edition_notes": "Africa's first Abbott World Marathon Major (confirmed 2026 after successful candidacy). 2025 cancelled due to high winds; now held in May for calmer conditions. Fast course with strong elite fields and records set in recent years."
+  },
+  "course_profile": {
+    "surface": "asphalt",
+    "net_elevation_m": 0,
+    "total_ascent_m": 260,
+    "total_descent_m": 260,
+    "elevation_profile": [
+      {"km": 0, "elevation_m": 10},
+      {"km": 5, "elevation_m": 20},
+      {"km": 10, "elevation_m": 30},
+      {"km": 15, "elevation_m": 40},
+      {"km": 20, "elevation_m": 25},
+      {"km": 25, "elevation_m": 35},
+      {"km": 30, "elevation_m": 45},
+      {"km": 32, "elevation_m": 50},
+      {"km": 35, "elevation_m": 15},
+      {"km": 40, "elevation_m": 10},
+      {"km": 42.195, "elevation_m": 10}
+    ],
+    "key_segments": [
+      {
+        "name": "Early gentle climbs (city centre/Woodstock)",
+        "start_km": 5.0,
+        "end_km": 12.0,
+        "elevation_change_m": 30,
+        "avg_grade_pct": 0.4,
+        "training_note": "Gentle but early; don't bank time here as later fatigue will hit harder."
+      },
+      {
+        "name": "Sustained climb toward Rondebosch / suburbs",
+        "start_km": 15.0,
+        "end_km": 21.0,
+        "elevation_change_m": 25,
+        "avg_grade_pct": 0.6,
+        "training_note": "Long drag; control effort around halfway."
+      },
+      {
+        "name": "Major climb (cobblestoned section)",
+        "start_km": 30.0,
+        "end_km": 32.0,
+        "elevation_change_m": 30,
+        "avg_grade_pct": 1.5,
+        "training_note": "Steepest and most notable late-race climb on tired legs; simulate in long runs at 30k+."
+      },
+      {
+        "name": "Loop of Death coastal return",
+        "start_km": 35.0,
+        "end_km": 42.195,
+        "elevation_change_m": -40,
+        "avg_grade_pct": -0.5,
+        "training_note": "Flat to gently rolling coastal; mental challenge passing near finish before final push."
+      }
+    ],
+    "technical_notes": "Rolling course with one notable late cobblestoned climb. Wide roads early; Sea Point promenade is scenic and flat but can have wind exposure. 'Loop of Death' (passing finish area ~35k) is mentally tough."
+  },
+  "environment": {
+    "avg_temp_c": 14.0,
+    "temp_range_c": [12.0, 20.0],
+    "avg_humidity_pct": 75,
+    "wind_exposure": "variable",
+    "rain_probability_pct": 20,
+    "altitude_m": 10,
+    "sun_exposure": "mixed",
+    "typical_start_time": "6:00-9:00 AM waves (elites ~8:00 AM)"
+  },
+  "field_dynamics": {
+    "field_size": 27000,
+    "wave_start": true,
+    "start_congestion_km": 3.0,
+    "pacing_culture": "even",
+    "crowd_support": "electric"
+  },
+  "training_overlay": {
+    "hill_loading_weeks": 3,
+    "downhill_loading": false,
+    "eccentric_focus": false,
+    "heat_prep_required": false,
+    "altitude_prep_required": false,
+    "back_to_backs": false,
+    "race_profile_long_run": "Rolling long run with a sustained effort climb at 28-32km mark on tired legs; include some cobble-like uneven surface if possible. Finish with flat coastal simulation.",
+    "phase3_session_modifiers": ["Incorporate rolling tempo runs mimicking suburban drags", "Late-race hill repeats in quality sessions"],
+    "phase4_session_modifiers": ["Dress rehearsal long run with late 30-32km climb focus", "Coastal flat efforts for mental toughness"]
+  },
+  "race_strategy": {
+    "recommended_pacing": "even",
+    "danger_zones": ["Early banking in first 8km", "Underestimating the sustained climb ~24-32km", "Mental fade on 'Loop of Death'"],
+    "split_strategy": "Even or slight negative split. Conserve early for the back-half climbs; strong final 10km on the promenade if paced well.",
+    "fuelling_notes": "Aid stations every ~2.5km with water (sachets) and Powerade; Coca-Cola from ~25km. Carry your own gels (start ~30min in). Practice sachet technique."
+  },
+  "qualifying": {
+    "is_qualifier": true,
+    "qualifier_for": "Abbott World Marathon Majors (provisional stars for 2026 finishers; full from 2027)",
+    "standards_note": "Open entry via ballot/charity; age 18+. Qualifies runners for future Majors considerations.",
+    "registration_window": "Ballot typically opens months ahead (e.g., closes June for next year); charity/ITO options available."
+  },
+  "knowledge_base": {
+    "course_guide": "Spectacular route showcasing Cape Town's icons: starts near Cape Town Stadium/Green Point, through city centre, Woodstock/Salt River (vibrant crowds), southern suburbs/Rondebosch Common, then back via coastal Sea Point promenade with Table Mountain views. The final stretch is visually stunning but the 'Loop of Death' (passing finish area late) tests resolve. Fast, rolling course ideal for strong performances in mild May conditions.",
+    "common_mistakes": [
+      "Going out too fast in the first 8km and banking time",
+      "Under-preparing for the rolling hills and late climb around 30-32km",
+      "Failing to manage the mental challenge of the Loop of Death",
+      "Not practicing with on-course fuelling (sachets/Powerade/Coke)"
+    ],
+    "gear_notes": "Light racing shoes for fast course; breathable kit for mild temps. Wind-resistant layer possible for early start/coastal sections. Sunglasses for mixed sun. Carry gels as no official ones provided.",
+    "sources": [
+      "https://capetownmarathon.com/",
+      "https://capetownmarathon.com/marathon/",
+      "https://en.wikipedia.org/wiki/Cape_Town_Marathon",
+      "https://marathonhandbook.com/everything-you-need-to-know-about-the-2026-cape-town-marathon/",
+      "https://findmymarathon.com/ (elevation data)",
+      "Race reports and course analyses 2024-2026"
+    ]
+  }
+}
