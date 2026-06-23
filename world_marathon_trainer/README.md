@@ -23,9 +23,38 @@ world_marathon_trainer/
 │   ├── phase1b.py          # base build to target peak
 │   ├── phase2to5.py        # 18-week race block, Daniels-informed + race overlay
 │   └── builder.py          # orchestrates all phases into one continuous plan
+├── api/
+│   ├── main.py             # FastAPI app — thin HTTP wrapper over the engine
+│   └── schemas.py          # Pydantic request/response models
 ├── demo.py                 # builds + prints a full Cape Town plan
-└── tests/test_engine.py    # 13 tests
+├── requirements.txt        # API + test deps (engine itself is stdlib-only)
+└── tests/
+    ├── test_engine.py      # 20 engine tests
+    └── test_api.py         # 11 API tests
 ```
+
+## API
+
+```bash
+cd world_marathon_trainer
+pip install -r requirements.txt
+uvicorn api.main:app --reload --port 8000      # docs at /docs
+```
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET  | `/health` | liveness + races loaded |
+| GET  | `/races` | list available races (add a JSON → appears here) |
+| GET  | `/races/{id}` | full race profile (drives training + agent RAG) |
+| GET  | `/vdot/{value}` | paces + race-time equivalents + pace card |
+| POST | `/vdot/from-race` | VDOT from a race result |
+| GET  | `/vdot-table` | full VDOT 30-85 lookup table |
+| POST | `/plan` | build a complete plan for an athlete |
+| POST | `/plan/assessment` | slot-in assessment only (cheap onboarding call) |
+
+The API contains **no training logic** — it validates, calls the engine, and
+serialises. n8n and the agent call these endpoints; they never import the engine
+directly (keeps the layers physically separate).
 
 ## Phase model
 
