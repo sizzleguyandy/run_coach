@@ -41,8 +41,10 @@ class Athlete(Base):
     recent_race_time_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     goal_marathon_time_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    # Cached fitness index
+    # Cached fitness index (effective: adapted value if set, else race estimate)
     vdot: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # VDOT set by the adaptation loop. When present it wins over race estimate.
+    adapted_vdot: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -82,3 +84,25 @@ class Activity(Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     athlete: Mapped["Athlete"] = relationship(back_populates="activities")
+
+
+class AdaptationLog(Base):
+    """Auditable record of every adaptation decision."""
+
+    __tablename__ = "adaptation_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    athlete_id: Mapped[str] = mapped_column(
+        ForeignKey("athletes.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    week_index: Mapped[int] = mapped_column(Integer)
+    weeks_to_race: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    phase: Mapped[str] = mapped_column(String)
+
+    vdot_before: Mapped[float] = mapped_column(Float)
+    vdot_after: Mapped[float] = mapped_column(Float)
+
+    # Full decision payload kept as JSON for audit / agent narration.
+    decision: Mapped[str] = mapped_column(Text)

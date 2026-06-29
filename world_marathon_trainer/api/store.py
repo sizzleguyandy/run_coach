@@ -14,9 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from engine import vdot as vdot_mod
+from engine import build_plan
+from engine.adaptation import evaluate_week
 from engine.models import AthleteInput
 
-from .orm import Athlete, Activity
+from .orm import Athlete, Activity, AdaptationLog
 
 
 # --------------------------------------------------------------------------- #
@@ -90,6 +92,7 @@ def _to_input(a: Athlete, today) -> AthleteInput:
         recent_race_distance_km=a.recent_race_distance_km,
         recent_race_time_min=a.recent_race_time_min,
         goal_marathon_time_min=a.goal_marathon_time_min,
+        vdot_override=a.adapted_vdot,
         name=a.name,
     )
 
@@ -192,3 +195,103 @@ def recompute_current_weekly_km(db: Session, athlete_id: str, weeks: int = 4) ->
     _recache_vdot(athlete)
     db.commit()
     return weekly
+
+
+# --------------------------------------------------------------------------- #
+# Adaptation
+# --------------------------------------------------------------------------- #
+def _runs_between(db: Session, athlete_id: str, start, end) -> list[Activity]:
+    """Run activities with start_date in [start, end) (dates)."""
+    from datetime import datetime as _dt
+    lo = _dt.combine(start, _dt.min.time())
+    hi = _dt.combine(end, _dt.min.time())
+    stmt = select(Activity).where(
+        Activity.athlete_id == athlete_id,
+        Activity.activity_type == "Run",
+        Activity.start_date >= lo,
+        Activity.start_date < hi,
+    )
+    return list(db.scalars(stmt))
+
+
+def adapt_week(db: Session, athlete_id: str, as_of=None) -> dict:
+    """Evaluate the most recently completed plan week and apply the nudge.
+
+    `as_of` (date) defaults to today. Finds the latest plan week whose end_date
+    is on/before as_of, compares planned vs actual, applies the VDOT nudge to the
+    athlete, and logs the decision. Returns a serialisable result.
+    """
+    from dataclasses import asdict
+    from datetime import date as _date, timedelta
+
+    athlete = db.get(Athlete, athlete_id)
+    if not athlete:
+        return {"adapted": False, "reason": "athlete not found"}
+
+    as_of = as_of or _date.today()
+    plan = build_plan(_to_input(athlete, today=as_of))
+
+    # Most recently completed week (end_date <= as_of).
+    completed = [w for w in plan.weeks if w.end_date and w.end_date <= as_of]
+    if not completed:
+        return {"adapted": False, "reason": "no completed week yet"}
+    week = max(completed, key=lambda w: w.end_date)
+
+    week_runs = _runs_between(db, athlete_id, week.start_date, week.end_date)
+    recent_runs = _runs_between(
+        db, athlete_id, as_of - timedelta(weeks=4), as_of + timedelta(days=1)
+    )
+
+    current_vdot = athlete.adapted_vdot or round(
+        vdot_mod.estimate_vdot(_to_input(athlete, today=as_of)), 1
+    )
+    in_taper = week.phase == "5"
+
+    decision = evaluate_week(
+        planned_week=week,
+        week_runs=week_runs,
+        recent_runs=recent_runs,
+        current_vdot=current_vdot,
+        in_taper=in_taper,
+    )
+
+    # Apply + log.
+    athlete.adapted_vdot = decision.vdot_after
+    athlete.vdot = decision.vdot_after
+    db.add(AdaptationLog(
+        athlete_id=athlete_id,
+        week_index=decision.week_index,
+        weeks_to_race=decision.weeks_to_race,
+        phase=decision.phase,
+        vdot_before=decision.vdot_before,
+        vdot_after=decision.vdot_after,
+        decision=json.dumps(asdict(decision)),
+    ))
+    db.commit()
+
+    out = asdict(decision)
+    out["adapted"] = True
+    out["vdot_delta"] = decision.vdot_delta
+    return out
+
+
+def list_adaptations(db: Session, athlete_id: str, limit: int = 20) -> list[dict]:
+    stmt = (
+        select(AdaptationLog)
+        .where(AdaptationLog.athlete_id == athlete_id)
+        .order_by(AdaptationLog.created_at.desc())
+        .limit(limit)
+    )
+    rows = list(db.scalars(stmt))
+    return [
+        {
+            "created_at": r.created_at.isoformat(),
+            "week_index": r.week_index,
+            "weeks_to_race": r.weeks_to_race,
+            "phase": r.phase,
+            "vdot_before": r.vdot_before,
+            "vdot_after": r.vdot_after,
+            "decision": json.loads(r.decision),
+        }
+        for r in rows
+    ]

@@ -37,6 +37,10 @@ class AthleteInput:
     # Goal marathon time in minutes (optional; used if no recent race).
     goal_marathon_time_min: Optional[float] = None
 
+    # Effective VDOT set by the adaptation loop. When present it wins over the
+    # race-derived estimate (the loop has the freshest, Strava-backed read).
+    vdot_override: Optional[float] = None
+
     name: str = "Athlete"
 
 
@@ -67,6 +71,10 @@ class Week:
     target_volume_km: float
     days: list[Session] = field(default_factory=list)
     note: str = ""
+    # Calendar anchor (computed in the builder from race_date) so synced
+    # activities can be matched to the week they belong to.
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
 
 
 @dataclass
@@ -82,6 +90,41 @@ class Assessment:
     feasible: bool                 # can they reach the 48km gate safely in time?
     flags: list[str] = field(default_factory=list)
     rationale: list[str] = field(default_factory=list)
+
+
+@dataclass
+class AdaptationDecision:
+    """Result of evaluating one completed week against its plan."""
+
+    week_index: int
+    weeks_to_race: Optional[int]
+    phase: str
+
+    planned_km: float
+    actual_km: float
+    volume_compliance: float          # actual / planned (clamped)
+
+    planned_sessions: int
+    completed_sessions: int
+    session_compliance: float
+
+    planned_long_km: float
+    actual_long_km: float
+    long_run_done: bool
+
+    avg_heartrate: Optional[float]
+    avg_suffer: Optional[float]
+    best_recent_vdot: float
+
+    vdot_before: float
+    vdot_after: float
+
+    notes: list[str] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
+
+    @property
+    def vdot_delta(self) -> float:
+        return round(self.vdot_after - self.vdot_before, 2)
 
 
 @dataclass

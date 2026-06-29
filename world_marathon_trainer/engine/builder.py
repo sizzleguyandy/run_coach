@@ -65,6 +65,16 @@ def build_plan(athlete: AthleteInput) -> Plan:
     )
     weeks.extend(block)
 
+    # Anchor each week to the calendar from race_date working backwards, so the
+    # final week (weeks_to_race == 1) ends on race day. Stable regardless of
+    # 'today'. Lets the adaptation loop match Strava activities to plan weeks.
+    from datetime import timedelta
+    total = len(weeks)
+    for i, w in enumerate(weeks):
+        weeks_from_end = total - (i + 1)
+        w.end_date = athlete.race_date - timedelta(days=7 * weeks_from_end)
+        w.start_date = w.end_date - timedelta(days=7)
+
     return Plan(
         athlete=athlete.name,
         race_id=athlete.race_id,

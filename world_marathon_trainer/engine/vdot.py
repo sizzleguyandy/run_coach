@@ -223,8 +223,10 @@ def pace_card(vdot: float) -> str:
 def estimate_vdot(athlete) -> float:
     """Best-effort VDOT from available athlete inputs.
 
-    Priority: recent race > goal marathon time > volume-based fallback.
+    Priority: adaptation override > recent race > goal marathon > volume fallback.
     """
+    if getattr(athlete, "vdot_override", None):
+        return athlete.vdot_override
     if athlete.recent_race_distance_km and athlete.recent_race_time_min:
         return vdot_from_race(
             athlete.recent_race_distance_km, athlete.recent_race_time_min

@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import asdict
+from datetime import date
+from typing import Optional
 
 from contextlib import asynccontextmanager
 
@@ -267,3 +269,29 @@ def get_activities(athlete_id: str, limit: int = 50,
     if not store.get_athlete(db, athlete_id):
         raise HTTPException(404, "athlete not found")
     return store.list_activities(db, athlete_id, limit=limit)
+
+
+# --------------------------------------------------------------------------- #
+# Adaptation
+# --------------------------------------------------------------------------- #
+@app.post("/athlete/{athlete_id}/adapt", tags=["adaptation"])
+def adapt(athlete_id: str, as_of: Optional[date] = None,
+          db: Session = Depends(get_session)):
+    """Evaluate the most recently completed week and apply a bounded VDOT nudge.
+
+    n8n calls this after the weekly sync. `as_of` (YYYY-MM-DD) overrides 'today'
+    for testing / backfill. Returns the decision (metrics, VDOT change, coaching
+    notes, flags) — the agent narrates `notes`/`flags` to the athlete.
+    """
+    if not store.get_athlete(db, athlete_id):
+        raise HTTPException(404, "athlete not found")
+    return store.adapt_week(db, athlete_id, as_of=as_of)
+
+
+@app.get("/athlete/{athlete_id}/adaptations", tags=["adaptation"])
+def adaptations(athlete_id: str, limit: int = 20,
+                db: Session = Depends(get_session)):
+    """Audit trail of past adaptation decisions for this athlete."""
+    if not store.get_athlete(db, athlete_id):
+        raise HTTPException(404, "athlete not found")
+    return store.list_adaptations(db, athlete_id, limit=limit)

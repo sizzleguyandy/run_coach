@@ -57,6 +57,8 @@ uvicorn api.main:app --reload --port 8000      # docs at /docs
 | POST | `/athlete/{id}/plan` | build plan from the **stored** record |
 | POST | `/athlete/{id}/sync` | **Strava ingest** — n8n posts activities here |
 | GET  | `/athlete/{id}/activities` | stored activity history |
+| POST | `/athlete/{id}/adapt` | evaluate last completed week → nudge VDOT + notes |
+| GET  | `/athlete/{id}/adaptations` | audit trail of past adaptations |
 
 The API contains **no training logic** — it validates, calls the engine, and
 serialises. n8n and the agent call these endpoints; they never import the engine
@@ -75,6 +77,26 @@ with `WMT_DB_URL` (swap to Postgres later — connection-string change).
 Each athlete's n8n workflow POSTs to `/athlete/{id}/sync`. The contract is in
 `docs/STRAVA_SYNC_CONTRACT.md` — one workflow or one-per-athlete, the contract is
 identical, so the n8n topology can change without touching the backend.
+
+## Adaptation loop
+
+Plans are live-computed, so adaptation nudges **parameters**, not a stored plan.
+After the weekly sync, n8n calls `POST /athlete/{id}/adapt`:
+
+1. Build the current plan, find the most recently **completed** week (by date).
+2. Pull that week's Strava activities + the last 4 weeks (fitness signal).
+3. Compare planned vs actual (volume, sessions, long run, strain).
+4. Decide a **bounded VDOT nudge**:
+   - **Up** only on evidence — a hard recent effort implies more fitness
+     (Daniels' "best recent performance"), moved toward by half the gap, ≤ +1.0/wk.
+   - **Down** only when struggling (volume < 65% or sessions < 60%), −0.3, floor 30.
+   - **Hold** when on track; **never raise during taper**.
+5. Apply to `adapted_vdot` (wins over the race estimate) + write an
+   `adaptation_log` row (auditable). Return metrics + coaching `notes`/`flags`
+   for the agent to narrate.
+
+Volume is partly self-correcting already — `current_weekly_km` is recomputed from
+Strava on every sync, so the next build ramps from the real base.
 
 ## Phase model
 
