@@ -93,6 +93,22 @@ class Assessment:
 
 
 @dataclass
+class DerivedProfile:
+    """Athlete starting profile derived from recent Strava history."""
+
+    weeks_of_data: int
+    n_runs: int
+    weekly_km: float
+    longest_run_km: float
+    longest_run_min: float
+    can_run_10k: bool
+    observed_training_days: int
+    implied_vdot: Optional[float]
+    confidence: str                  # "none","low","medium","high"
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
 class AdaptationDecision:
     """Result of evaluating one completed week against its plan."""
 

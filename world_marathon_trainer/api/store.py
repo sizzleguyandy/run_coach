@@ -14,8 +14,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from engine import vdot as vdot_mod
-from engine import build_plan
+from engine import build_plan, derive_profile
 from engine.adaptation import evaluate_week
+from engine.assessment import assess
 from engine.models import AthleteInput
 
 from .orm import Athlete, Activity, AdaptationLog
@@ -273,6 +274,70 @@ def adapt_week(db: Session, athlete_id: str, as_of=None) -> dict:
     out["adapted"] = True
     out["vdot_delta"] = decision.vdot_delta
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Onboarding (derive from Strava history)
+# --------------------------------------------------------------------------- #
+def onboard(db: Session, data: dict, preview: bool = False) -> dict:
+    """Derive a starting profile from recent activities, slot the athlete in.
+
+    If `preview`, returns the derived profile + assessment without persisting.
+    Otherwise creates the athlete, stores the activities, and returns the same
+    plus the new athlete id.
+    """
+    from dataclasses import asdict
+    from datetime import date as _date
+
+    activities = data.get("activities") or []
+    profile = derive_profile(activities)
+
+    committed = data.get("training_days_committed") or profile.observed_training_days or 4
+    committed = max(3, min(7, int(committed)))
+
+    inp = AthleteInput(
+        today=data.get("today") or _date.today(),
+        race_id=data["race_id"],
+        race_date=data["race_date"],
+        current_weekly_km=profile.weekly_km,
+        training_days_per_week=committed,
+        can_run_10k_continuous=profile.can_run_10k,
+        longest_continuous_run_min=profile.longest_run_min,
+        vdot_override=profile.implied_vdot,
+        name=data.get("name", "Athlete"),
+    )
+    assessment = assess(inp)
+
+    result = {
+        "preview": preview,
+        "committed_training_days": committed,
+        "profile": asdict(profile),
+        "assessment": asdict(assessment),
+    }
+    if preview:
+        return result
+
+    athlete = create_athlete(db, {
+        "id": data.get("id"),
+        "name": data.get("name", "Athlete"),
+        "strava_athlete_id": data.get("strava_athlete_id"),
+        "race_id": data["race_id"],
+        "race_date": data["race_date"],
+        "current_weekly_km": profile.weekly_km,
+        "training_days_per_week": committed,
+        "can_run_10k_continuous": profile.can_run_10k,
+        "longest_continuous_run_min": profile.longest_run_min,
+    })
+    if profile.implied_vdot:
+        athlete.adapted_vdot = profile.implied_vdot
+        _recache_vdot(athlete)   # a.vdot now reflects the implied fitness
+        db.commit()
+        db.refresh(athlete)
+    if activities:
+        upsert_activities(db, athlete.id, activities)
+
+    result["athlete_id"] = athlete.id
+    return result
 
 
 def list_adaptations(db: Session, athlete_id: str, limit: int = 20) -> list[dict]:

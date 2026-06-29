@@ -181,6 +181,44 @@ class SyncRequest(BaseModel):
     }
 
 
+class OnboardRequest(BaseModel):
+    """Onboard via Strava history. The athlete's recent runs are read to derive
+    starting fitness; race + committed days are supplied by the athlete.
+    """
+
+    id: Optional[str] = None
+    name: str = "Athlete"
+    strava_athlete_id: Optional[str] = None
+
+    race_id: str
+    race_date: date
+    # Days the athlete can COMMIT to going forward (drives the peak cap). If
+    # omitted, the observed training pattern is used.
+    training_days_committed: Optional[int] = Field(None, ge=3, le=7)
+    today: Optional[date] = None
+    preview: bool = False
+
+    activities: list[SyncActivity] = Field(default_factory=list)
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Andrew",
+                "race_id": "cape_town",
+                "race_date": "2027-05-23",
+                "training_days_committed": 5,
+                "preview": True,
+                "activities": [
+                    {"id": "a1", "start_date": "2026-05-01T05:30:00Z",
+                     "distance_km": 10.0, "moving_time_min": 55.0},
+                    {"id": "a2", "start_date": "2026-05-04T05:30:00Z",
+                     "distance_km": 16.0, "moving_time_min": 92.0},
+                ],
+            }
+        }
+    }
+
+
 class ActivityOut(BaseModel):
     id: str
     start_date: datetime

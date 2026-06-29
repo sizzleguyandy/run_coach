@@ -51,7 +51,8 @@ uvicorn api.main:app --reload --port 8000      # docs at /docs
 | GET  | `/vdot-table` | full VDOT 30-85 lookup table |
 | POST | `/plan` | build a complete plan (stateless — pass all inputs) |
 | POST | `/plan/assessment` | slot-in assessment only (cheap onboarding call) |
-| POST | `/athlete` | onboard athlete → returns id (n8n keys sync against it) |
+| POST | `/onboard` | **derive fitness from Strava history** → slot-in (preview or commit) |
+| POST | `/athlete` | create athlete directly (manual inputs) → returns id |
 | GET  | `/athletes` · `/athlete/{id}` | list / fetch |
 | PATCH · DELETE | `/athlete/{id}` | update inputs / remove (cascades activities) |
 | POST | `/athlete/{id}/plan` | build plan from the **stored** record |
@@ -77,6 +78,21 @@ with `WMT_DB_URL` (swap to Postgres later — connection-string change).
 Each athlete's n8n workflow POSTs to `/athlete/{id}/sync`. The contract is in
 `docs/STRAVA_SYNC_CONTRACT.md` — one workflow or one-per-athlete, the contract is
 identical, so the n8n topology can change without touching the backend.
+
+## Onboarding (Strava-derived)
+
+`POST /onboard` reads the athlete's recent runs (the n8n initial pull) and
+**measures** their starting point instead of asking them to guess:
+
+- **derived:** weekly km, longest run, 10K-readiness, observed training days,
+  implied VDOT (best recent effort — easy runs can't inflate it), confidence.
+- **asked:** race + date (future intent) and the days they can **commit** to
+  going forward. Committed days ≠ observed days — the commitment drives the
+  peak cap (a casual 4-day runner may commit to 6 for the build, or a 5-day
+  habit may only commit to 3 when life is busy).
+- **`preview: true`** returns profile + slot-in assessment without persisting —
+  "here's where you'd start and why" before the athlete commits.
+- **no/sparse history** → `confidence: none/low` routes to the beginner path.
 
 ## Adaptation loop
 

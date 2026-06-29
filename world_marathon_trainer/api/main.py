@@ -47,6 +47,7 @@ from .schemas import (                                # noqa: E402
     AthleteOut,
     SyncRequest,
     ActivityOut,
+    OnboardRequest,
 )
 
 @asynccontextmanager
@@ -193,6 +194,26 @@ def create_athlete(body: AthleteCreate, db: Session = Depends(get_session)):
     except FileNotFoundError:
         raise HTTPException(404, f"no race profile for id '{body.race_id}'")
     return store.create_athlete(db, body.model_dump())
+
+
+@app.post("/onboard", tags=["athletes"])
+def onboard(body: OnboardRequest, db: Session = Depends(get_session)):
+    """Onboard from Strava history — derive fitness, slot the athlete in.
+
+    Reads the athlete's recent runs to MEASURE current volume, longest run,
+    10K-readiness and implied fitness (no self-reported guessing). Returns the
+    derived profile + the slot-in assessment. With `preview: true`, nothing is
+    persisted — use it to show 'here's where you'd start and why' before the
+    athlete commits.
+    """
+    try:
+        load_race(body.race_id)
+    except FileNotFoundError:
+        raise HTTPException(404, f"no race profile for id '{body.race_id}'")
+
+    data = body.model_dump()
+    data["activities"] = [a.model_dump() for a in body.activities]
+    return store.onboard(db, data, preview=body.preview)
 
 
 @app.get("/athletes", response_model=list[AthleteOut], tags=["athletes"])

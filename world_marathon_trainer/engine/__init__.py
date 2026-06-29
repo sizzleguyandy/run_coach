@@ -17,8 +17,11 @@ from .models import (
     Week,
     Plan,
     Assessment,
+    DerivedProfile,
+    AdaptationDecision,
 )
 from .builder import build_plan
+from .onboarding import derive_profile
 
 __all__ = [
     "AthleteInput",
@@ -26,5 +29,8 @@ __all__ = [
     "Week",
     "Plan",
     "Assessment",
+    "DerivedProfile",
+    "AdaptationDecision",
     "build_plan",
+    "derive_profile",
 ]
