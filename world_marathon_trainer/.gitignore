@@ -1,0 +1,8 @@
+# Local SQLite database (regenerated at runtime)
+*.db
+wmt.db
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

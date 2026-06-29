@@ -49,12 +49,32 @@ uvicorn api.main:app --reload --port 8000      # docs at /docs
 | GET  | `/vdot/{value}` | paces + race-time equivalents + pace card |
 | POST | `/vdot/from-race` | VDOT from a race result |
 | GET  | `/vdot-table` | full VDOT 30-85 lookup table |
-| POST | `/plan` | build a complete plan for an athlete |
+| POST | `/plan` | build a complete plan (stateless — pass all inputs) |
 | POST | `/plan/assessment` | slot-in assessment only (cheap onboarding call) |
+| POST | `/athlete` | onboard athlete → returns id (n8n keys sync against it) |
+| GET  | `/athletes` · `/athlete/{id}` | list / fetch |
+| PATCH · DELETE | `/athlete/{id}` | update inputs / remove (cascades activities) |
+| POST | `/athlete/{id}/plan` | build plan from the **stored** record |
+| POST | `/athlete/{id}/sync` | **Strava ingest** — n8n posts activities here |
+| GET  | `/athlete/{id}/activities` | stored activity history |
 
 The API contains **no training logic** — it validates, calls the engine, and
 serialises. n8n and the agent call these endpoints; they never import the engine
 directly (keeps the layers physically separate).
+
+## Persistence & Strava sync
+
+SQLite (via SQLAlchemy 2.0), file `wmt.db` (gitignored, auto-created). Configure
+with `WMT_DB_URL` (swap to Postgres later — connection-string change).
+
+- **`athletes`** — plan inputs + identity; cached VDOT. Built so plans rebuild
+  without re-onboarding.
+- **`activities`** — Strava 'truth', one row per activity, **deduped by Strava id**
+  (re-syncing overlapping windows is safe). The history the adaptation loop reads.
+
+Each athlete's n8n workflow POSTs to `/athlete/{id}/sync`. The contract is in
+`docs/STRAVA_SYNC_CONTRACT.md` — one workflow or one-per-athlete, the contract is
+identical, so the n8n topology can change without touching the backend.
 
 ## Phase model
 

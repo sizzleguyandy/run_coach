@@ -16,8 +16,11 @@ import os
 import sys
 from dataclasses import asdict
 
-from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 # Make the engine importable whether launched from repo root or this folder.
 _HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,18 +33,32 @@ from engine.race_profile import (                     # noqa: E402
     available_races,
     load_race,
 )
+from . import store                                   # noqa: E402
+from .db import init_db, get_session                  # noqa: E402
 from .schemas import (                                # noqa: E402
     AthleteRequest,
     RaceResultRequest,
     RaceSummary,
     VdotResponse,
+    AthleteCreate,
+    AthleteUpdate,
+    AthleteOut,
+    SyncRequest,
+    ActivityOut,
 )
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
 
 app = FastAPI(
     title="World Marathon Trainer",
     version="0.1.0",
     description="Race-first marathon training engine. Each plan is shaped by the "
                 "target race profile (Daniels methodology under the hood).",
+    lifespan=lifespan,
 )
 
 # Open CORS for now — tighten when the agent/n8n origins are known.
@@ -51,6 +68,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
 
 
 # --------------------------------------------------------------------------- #
@@ -159,3 +178,92 @@ def make_assessment(body: AthleteRequest):
 
     athlete = AthleteInput(**body.model_dump())
     return asdict(assess(athlete))
+
+
+# --------------------------------------------------------------------------- #
+# Athletes (persistence)
+# --------------------------------------------------------------------------- #
+@app.post("/athlete", response_model=AthleteOut, status_code=201, tags=["athletes"])
+def create_athlete(body: AthleteCreate, db: Session = Depends(get_session)):
+    """Onboard an athlete. Returns the id the n8n workflow keys its sync against."""
+    try:
+        load_race(body.race_id)
+    except FileNotFoundError:
+        raise HTTPException(404, f"no race profile for id '{body.race_id}'")
+    return store.create_athlete(db, body.model_dump())
+
+
+@app.get("/athletes", response_model=list[AthleteOut], tags=["athletes"])
+def list_athletes(db: Session = Depends(get_session)):
+    return store.list_athletes(db)
+
+
+@app.get("/athlete/{athlete_id}", response_model=AthleteOut, tags=["athletes"])
+def get_athlete(athlete_id: str, db: Session = Depends(get_session)):
+    a = store.get_athlete(db, athlete_id)
+    if not a:
+        raise HTTPException(404, "athlete not found")
+    return a
+
+
+@app.patch("/athlete/{athlete_id}", response_model=AthleteOut, tags=["athletes"])
+def update_athlete(athlete_id: str, body: AthleteUpdate,
+                   db: Session = Depends(get_session)):
+    if body.race_id:
+        try:
+            load_race(body.race_id)
+        except FileNotFoundError:
+            raise HTTPException(404, f"no race profile for id '{body.race_id}'")
+    a = store.update_athlete(db, athlete_id, body.model_dump(exclude_unset=True))
+    if not a:
+        raise HTTPException(404, "athlete not found")
+    return a
+
+
+@app.delete("/athlete/{athlete_id}", status_code=204, tags=["athletes"])
+def delete_athlete(athlete_id: str, db: Session = Depends(get_session)):
+    if not store.delete_athlete(db, athlete_id):
+        raise HTTPException(404, "athlete not found")
+
+
+@app.post("/athlete/{athlete_id}/plan", tags=["athletes"])
+def plan_for_athlete(athlete_id: str, db: Session = Depends(get_session)):
+    """Build a plan from the stored athlete record (no need to re-send inputs)."""
+    a = store.get_athlete(db, athlete_id)
+    if not a:
+        raise HTTPException(404, "athlete not found")
+    plan = build_plan(store.to_athlete_input(a))
+    return asdict(plan)
+
+
+# --------------------------------------------------------------------------- #
+# Strava sync (the n8n target)
+# --------------------------------------------------------------------------- #
+@app.post("/athlete/{athlete_id}/sync", tags=["sync"])
+def sync_activities(athlete_id: str, body: SyncRequest,
+                    db: Session = Depends(get_session)):
+    """Ingest Strava activities for one athlete (called by their n8n workflow).
+
+    Dedups by Strava activity id, so re-syncing overlapping windows is safe.
+    Optionally recomputes the athlete's current weekly volume from the truth.
+    """
+    a = store.get_athlete(db, athlete_id)
+    if not a:
+        raise HTTPException(404, "athlete not found")
+
+    items = [act.model_dump() for act in body.activities]
+    result = store.upsert_activities(db, athlete_id, items)
+
+    if body.recompute_weekly_km:
+        result["current_weekly_km"] = store.recompute_current_weekly_km(db, athlete_id)
+
+    return {"ok": True, **result}
+
+
+@app.get("/athlete/{athlete_id}/activities", response_model=list[ActivityOut],
+         tags=["sync"])
+def get_activities(athlete_id: str, limit: int = 50,
+                   db: Session = Depends(get_session)):
+    if not store.get_athlete(db, athlete_id):
+        raise HTTPException(404, "athlete not found")
+    return store.list_activities(db, athlete_id, limit=limit)
