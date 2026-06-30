@@ -26,6 +26,7 @@ world_marathon_trainer/
 ├── api/
 │   ├── main.py             # FastAPI app — thin HTTP wrapper over the engine
 │   └── schemas.py          # Pydantic request/response models
+├── coach_mcp_server.py     # MCP adapter — exposes the API as agent tools
 ├── demo.py                 # builds + prints a full Cape Town plan
 ├── requirements.txt        # API + test deps (engine itself is stdlib-only)
 └── tests/
@@ -113,6 +114,23 @@ After the weekly sync, n8n calls `POST /athlete/{id}/adapt`:
 
 Volume is partly self-correcting already — `current_weekly_km` is recomputed from
 Strava on every sync, so the next build ramps from the real base.
+
+## Agent layer (MCP adapter)
+
+`coach_mcp_server.py` is a thin MCP server that exposes the API as a fixed set of
+agent tools (`list_races`, `race_knowledge`, `onboard_athlete`, `get_plan`,
+`get_today`, `get_paces`, `adapt_week`, …). An MCP client like **Hermes Agent**
+connects over stdio and can *only* do what these tools allow — it cannot invent
+training; it calls the engine. This keeps the openclaw lesson intact: the agent is
+the mouth/ears, the engine is the brain.
+
+```
+Hermes (WhatsApp + memory + Claude)
+   └─ MCP ─> coach_mcp_server.py ─> FastAPI ─> engine
+```
+
+Setup + the system-prompt guardrail + the "discipline test" are in
+`docs/HERMES_SETUP.md`. Run the adapter with `pip install mcp httpx`.
 
 ## Phase model
 
