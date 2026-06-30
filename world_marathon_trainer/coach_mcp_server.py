@@ -1,4 +1,4 @@
-"""Marathon Coach — MCP server (adapter over the FastAPI engine).
+"""World Marathon Trainer — MCP server (adapter over the FastAPI engine).
 
 A thin Model Context Protocol server that exposes the World Marathon Trainer
 API as a fixed set of agent tools. An MCP client (e.g. Hermes Agent) connects to
@@ -16,7 +16,7 @@ Run standalone (for a quick check):
 
 Wire into Hermes (~/.hermes/config.yaml):
     mcp_servers:
-      marathon_coach:
+      world_marathon_trainer:
         command: python
         args: ["/abs/path/to/coach_mcp_server.py"]
         env:
@@ -37,7 +37,7 @@ from mcp.server.fastmcp import FastMCP
 API_BASE = os.environ.get("WMT_API_BASE", "http://localhost:8000")
 TIMEOUT = float(os.environ.get("WMT_API_TIMEOUT", "30"))
 
-mcp = FastMCP("marathon_coach")
+mcp = FastMCP("world_marathon_trainer")
 _client = httpx.Client(base_url=API_BASE, timeout=TIMEOUT)
 
 _WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

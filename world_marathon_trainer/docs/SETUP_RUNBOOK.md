@@ -1,6 +1,6 @@
 # Build Instructions (for a setup agent)
 
-You are an automation agent setting up the Marathon Coach end to end. Execute the
+You are an automation agent setting up World Marathon Trainer end to end. Execute the
 steps in order. Do **everything** yourself **except two checkpoints** that need a
 human — **LLM selection** and **WhatsApp auth** — where you must stop, print the
 exact command for the human to run, and wait for them to confirm before
@@ -51,7 +51,7 @@ hermes --version
 Edit `~/.hermes/config.yaml` and add (create the file/keys if missing):
 ```yaml
 mcp_servers:
-  marathon_coach:
+  world_marathon_trainer:
     command: python
     args: ["<PROJECT>/coach_mcp_server.py"]
     env:
@@ -63,7 +63,7 @@ run `hermes mcp serve` (that's the opposite direction). After editing, reload:
 # in a Hermes session:  /reload-mcp     (or just restart Hermes)
 ```
 Verify the tools are visible (e.g. `hermes mcp` / list tools) — you should see
-`marathon_coach` with `get_today`, `get_plan`, `race_knowledge`, etc.
+`world_marathon_trainer` with `get_today`, `get_plan`, `race_knowledge`, etc.
 
 ## Step 5 — Confirm the MCP requirements  (agent)
 
@@ -82,7 +82,7 @@ cp "<PROJECT>/docs/COACH_AGENT.md" ~/.hermes/SOUL.md
 ```
 
 (Hermes auto-creates a starter SOUL.md and never overwrites a user one, so copy
-over it explicitly.) Since this whole Hermes instance IS the marathon coach, the
+over it explicitly.) Since this whole Hermes instance IS World Marathon Trainer, the
 coach brief is its durable identity. This is the guardrail that stops the agent
 inventing training. If you came from openclaw, do NOT reuse the old builder
 SOUL.md here — use COACH_AGENT.md.

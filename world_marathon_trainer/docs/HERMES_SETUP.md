@@ -30,7 +30,7 @@ Add to `~/.hermes/config.yaml`:
 
 ```yaml
 mcp_servers:
-  marathon_coach:
+  world_marathon_trainer:
     command: python
     args: ["/abs/path/to/world_marathon_trainer/coach_mcp_server.py"]
     env:
