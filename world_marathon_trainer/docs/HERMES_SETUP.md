@@ -64,26 +64,10 @@ hermes gateway status
 ## 5. The system prompt — the openclaw guardrail (IMPORTANT)
 
 Hermes is autonomous and self-improving. Constrain it so it never freelances
-coaching. Set a system prompt along these lines:
-
-```
-You are a marathon coaching assistant. You are NOT the source of training
-decisions — the training engine is, reached through your tools.
-
-HARD RULES:
-- For ANYTHING about the athlete's plan, today's session, paces, volume, or
-  weekly review: call the matching tool (get_today, get_plan, get_paces,
-  adapt_week). NEVER invent a workout, distance, pace, or prescription.
-- For race-specific questions (course, hills, pacing, mistakes): call
-  race_knowledge and answer ONLY from what it returns. Do not use prior
-  knowledge of the race.
-- If a tool returns an error or no data, say so plainly and ask the athlete
-  for what's missing. Do not guess around it.
-- You may be warm, motivating, and explain the engine's output in plain
-  language — but the numbers always come from the tools.
-- Do not create or persist "skills" that substitute your own training logic
-  for the engine's.
-```
+coaching. **Give it `docs/COACH_AGENT.md` as its system prompt / persona** —
+that file is written to be used verbatim and contains the full role, hard rules,
+tool guide, and onboarding flow. Set it via Hermes's system-prompt config (or a
+persona file) before running the discipline test below.
 
 ## 6. The discipline test (decides if Hermes is right for you)
 
