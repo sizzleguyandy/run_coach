@@ -230,5 +230,46 @@ def get_adaptation_history(athlete_id: str, limit: int = 10) -> Any:
                     params={"limit": limit})
 
 
+# --------------------------------------------------------------------------- #
+# Conditions (how the athlete is feeling)
+# --------------------------------------------------------------------------- #
+@mcp.tool()
+def report_condition(
+    athlete_id: str,
+    condition: str,
+    severity: Optional[str] = None,
+    body_area: Optional[str] = None,
+    note: Optional[str] = None,
+) -> Any:
+    """Report how the athlete is feeling and get the SAFE response from the engine.
+
+    When the athlete says anything about their state — tired, a sore spot, sharp
+    pain, a cold, missed runs, feeling great, stressed — DO NOT decide what to do
+    yourself. Classify their message into exactly one `condition` and call this;
+    the engine returns the safe action (and, for red flags, rest + see a
+    professional). Relay the engine's `message`; never override it.
+
+    condition (pick ONE):
+      tired             general fatigue, heavy legs, poor sleep
+      niggle            mild soreness in a specific area, not sharp
+      pain              sharp/acute pain, or it affects how they move  (RED FLAG)
+      illness_mild      head cold, above the neck, no fever
+      illness_systemic  fever, chest, or whole-body symptoms           (RED FLAG)
+      missed            missed a session / travel / short on time
+      great             feeling strong, wants to do more
+      stress            life stress / low energy (not physical)
+
+    severity: "mild" | "moderate" | "severe"  (a severe niggle is treated as a flag)
+    body_area: e.g. "left knee" — include it for niggle/pain.
+
+    Returns: action, the modified session (if any), escalate_to_professional, and
+    the message to relay. If escalate_to_professional is true, do NOT offer a
+    workout — relay the rest/medical guidance.
+    """
+    body = {"condition": condition, "severity": severity,
+            "body_area": body_area, "note": note}
+    return _request("POST", f"/athlete/{athlete_id}/condition", json=body)
+
+
 if __name__ == "__main__":
     mcp.run()

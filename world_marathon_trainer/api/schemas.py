@@ -181,6 +181,24 @@ class SyncRequest(BaseModel):
     }
 
 
+class ConditionRequest(BaseModel):
+    """A classified athlete condition. The agent maps free text to `condition`."""
+
+    condition: str = Field(
+        ..., description="one of: tired, niggle, pain, illness_mild, "
+                         "illness_systemic, missed, great, stress")
+    severity: Optional[str] = Field(None, description="mild | moderate | severe")
+    body_area: Optional[str] = Field(None, description="e.g. 'left knee'")
+    note: Optional[str] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {"condition": "niggle", "severity": "mild",
+                        "body_area": "left knee"}
+        }
+    }
+
+
 class OnboardRequest(BaseModel):
     """Onboard via Strava history. The athlete's recent runs are read to derive
     starting fitness; race + committed days are supplied by the athlete.

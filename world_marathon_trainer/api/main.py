@@ -48,6 +48,7 @@ from .schemas import (                                # noqa: E402
     SyncRequest,
     ActivityOut,
     OnboardRequest,
+    ConditionRequest,
 )
 
 @asynccontextmanager
@@ -316,3 +317,60 @@ def adaptations(athlete_id: str, limit: int = 20,
     if not store.get_athlete(db, athlete_id):
         raise HTTPException(404, "athlete not found")
     return store.list_adaptations(db, athlete_id, limit=limit)
+
+
+# --------------------------------------------------------------------------- #
+# Conditions (tired / sore / injured / sick / ...)
+# --------------------------------------------------------------------------- #
+@app.post("/athlete/{athlete_id}/condition", tags=["conditions"])
+def report_condition(athlete_id: str, body: ConditionRequest,
+                     db: Session = Depends(get_session)):
+    """Turn a classified athlete condition into a safe, deterministic response.
+
+    The agent classifies the athlete's message into one of the fixed condition
+    codes; the engine decides the response (modify today's session, or — for red
+    flags like sharp pain / fever — rest + see a professional). The agent must
+    relay the result and cannot override a red flag.
+    """
+    from dataclasses import asdict
+    from engine.conditions import evaluate_condition, CONDITIONS
+
+    athlete = store.get_athlete(db, athlete_id)
+    if not athlete:
+        raise HTTPException(404, "athlete not found")
+
+    # Pull today's session so the engine can swap it appropriately.
+    today_session = None
+    phase = None
+    try:
+        plan = build_plan(store.to_athlete_input(athlete))
+        from datetime import date as _date
+        today = _date.today()
+        for w in plan.weeks:
+            if w.start_date and w.end_date and w.start_date <= today < w.end_date:
+                phase = w.phase
+                wd = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][today.weekday()]
+                today_session = next(
+                    (asdict(s) for s in w.days if s.day == wd), None
+                )
+                break
+    except Exception:
+        pass
+
+    result = evaluate_condition(
+        condition=body.condition,
+        severity=body.severity or "moderate",
+        body_area=body.body_area,
+        today_session=today_session,
+        phase=phase,
+    )
+    out = asdict(result)
+    out["valid_conditions"] = list(CONDITIONS.keys())
+    return out
+
+
+@app.get("/conditions", tags=["conditions"])
+def list_conditions():
+    """The fixed condition taxonomy the agent must classify into."""
+    from engine.conditions import CONDITIONS
+    return CONDITIONS

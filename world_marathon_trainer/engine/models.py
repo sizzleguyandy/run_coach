@@ -144,6 +144,19 @@ class AdaptationDecision:
 
 
 @dataclass
+class ConditionResponse:
+    """Engine's deterministic response to a classified athlete condition."""
+
+    condition: str
+    recognised: bool
+    action: str                       # stop/rest/reduce/swap_easy/hold/prioritise/...
+    modified_session: Optional[dict]  # replacement session, or None
+    escalate_to_professional: bool    # red flag -> see a physio/doctor
+    message: str                      # athlete-facing guidance (engine-authored)
+    safety_note: str = ""             # internal rationale / the rule applied
+
+
+@dataclass
 class Plan:
     """A complete athlete plan."""
 
