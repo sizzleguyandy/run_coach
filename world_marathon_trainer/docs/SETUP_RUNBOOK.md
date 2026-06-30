@@ -1,91 +1,136 @@
-# Setup Runbook (agent-runnable)
+# Build Instructions (for a setup agent)
 
-An ordered checklist to stand up the marathon coach. Most steps are commands an
-agent can run directly. Steps marked **`HUMAN:`** need a person (secrets,
-interactive auth, install bootstrap) — an agent must stop and ask for these.
+You are an automation agent setting up the Marathon Coach end to end. Execute the
+steps in order. Do **everything** yourself **except two checkpoints** that need a
+human — **LLM selection** and **WhatsApp auth** — where you must stop, print the
+exact command for the human to run, and wait for them to confirm before
+continuing.
+
+Use absolute paths throughout. `PROJECT` below = the absolute path to the
+`world_marathon_trainer/` directory.
 
 > Two documents, two roles — don't blend them:
-> - **this file** = *do these steps*
-> - **COACH_AGENT.md** = *the agent's persona* (set as system prompt, step 7)
+> - **this file** = the steps you execute
+> - **COACH_AGENT.md** = the coach agent's persona (you install it in step 6)
 
 ---
 
-## A. Backend (agent can do all of this)
+## Step 1 — Backend: deps, database, tests, demo athlete  (agent)
 
 ```bash
-# 1. From the project directory:
-cd world_marathon_trainer
-
-# 2. One command: install deps, build the SQLite DB, run tests, seed a demo athlete
+cd "$PROJECT"
 ./setup.sh --seed
-#    -> prints a demo athlete_id; keep it for the discipline test in step 8
-
-# 3. Start the API (leave it running; reachable at http://localhost:8000)
-uvicorn api.main:app --port 8000
 ```
+This installs Python deps, builds the SQLite DB, runs the test suite, and seeds a
+demo athlete. **Capture the printed `athlete_id`** — you'll use it in step 8.
+If the tests don't pass, stop and report the failure.
 
-Verify: `curl -s http://localhost:8000/health` → `{"status":"ok","races_loaded":1}`
+## Step 2 — Start the coach API  (agent)
 
-## B. Hermes Agent
+Run it so it stays up and is reachable at `http://localhost:8000`:
+```bash
+cd "$PROJECT"
+nohup uvicorn api.main:app --port 8000 > /tmp/wmt_api.log 2>&1 &
+```
+Verify:
+```bash
+curl -s http://localhost:8000/health     # expect {"status":"ok","races_loaded":1}
+```
+If this fails, stop and report (check `/tmp/wmt_api.log`).
+
+## Step 3 — Install Hermes Agent  (agent)
 
 ```bash
-# 4. HUMAN: install Hermes (bootstrap — the agent can't install its own host)
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
-source ~/.bashrc        # or ~/.zshrc
+# then ensure the hermes binary is on PATH (source the shell rc if needed)
+hermes --version
 ```
 
-```bash
-# 5. HUMAN: point Hermes at Claude and provide the API key (a secret)
-hermes model            # select Anthropic / Claude, paste API key
-```
+## Step 4 — Register the coach tools (MCP server)  (agent)
 
+Edit `~/.hermes/config.yaml` and add (create the file/keys if missing):
 ```yaml
-# 6. Register the coach tools — agent edits ~/.hermes/config.yaml, adding:
 mcp_servers:
   marathon_coach:
     command: python
-    args: ["<ABSOLUTE_PATH>/world_marathon_trainer/coach_mcp_server.py"]
+    args: ["<PROJECT>/coach_mcp_server.py"]
     env:
       WMT_API_BASE: "http://localhost:8000"
 ```
-Then restart Hermes so the tools load. (This is a CUSTOM server — do NOT run
-`hermes mcp serve`, which is the opposite direction.)
+Replace `<PROJECT>` with the absolute path. This is a CUSTOM MCP server — do NOT
+run `hermes mcp serve` (that's the opposite direction).
 
-```
-# 7. Set the agent's system prompt to the contents of docs/COACH_AGENT.md
-#    (via Hermes's system-prompt / persona config). This is the guardrail that
-#    keeps it calling tools instead of inventing training.
-```
+## Step 5 — Confirm the MCP requirements  (agent)
 
 ```bash
-# 8. HUMAN: connect WhatsApp (interactive auth — QR / Business Cloud)
-hermes gateway setup        # pick WhatsApp, complete auth
-hermes gateway status
+python -c "import mcp, httpx; print('mcp deps ok')"
+```
+(`setup.sh` already installed these via requirements.txt; this just confirms.)
+
+## Step 6 — Set the coach's system prompt / persona  (agent)
+
+Set the contents of `<PROJECT>/docs/COACH_AGENT.md` as the agent's system prompt
+(Hermes persona / system-prompt config). If you're unsure of the exact field or
+command, consult `hermes --help` / `hermes config --help` and the local docs;
+the goal is simply that COACH_AGENT.md becomes the active system prompt. This is
+the guardrail that stops the agent inventing training.
+
+## Step 7 — HUMAN CHECKPOINT 1: select the LLM  ⛔ STOP
+
+Print this and wait for the human to complete it (it requires an API key — a
+secret you must not handle):
+
+```
+HUMAN: run `hermes model`, choose your model (e.g. Anthropic/Claude),
+       and paste your API key. Tell me when done.
 ```
 
-## C. The discipline test (decides if Hermes stays in its lane)
+## Step 8 — HUMAN CHECKPOINT 2: connect WhatsApp  ⛔ STOP
 
-In WhatsApp (or `hermes --tui`):
+Print this and wait (interactive auth you cannot complete):
 
-1. **"What should I run today?"** (give it the demo `athlete_id` from step 2)
+```
+HUMAN: run `hermes gateway setup`, choose WhatsApp, and complete the auth
+       (QR scan / Business Cloud). Then `hermes gateway status` should show
+       it connected. Tell me when done.
+```
+
+## Step 9 — Verify (agent + human together)
+
+Once both checkpoints are confirmed, run the **discipline test** in WhatsApp
+(or `hermes --tui`), using the demo `athlete_id` from step 1:
+
+1. **"What should I run today?"**
    - PASS: it calls `get_today` and relays the engine's session.
-   - FAIL: it invents a workout. → tighten the system prompt.
+   - FAIL: it invents a workout → re-check step 6 (persona not set).
 2. **"How should I pace the back half of Cape Town?"**
-   - PASS: it calls `race_knowledge` and answers from the profile (the km 30-32
-     climb, the Loop of Death, even pacing).
-   - FAIL: it answers from generic memory.
+   - PASS: it calls `race_knowledge`, answers from the profile (km 30-32 climb,
+     the Loop of Death, even pacing).
+   - FAIL: answers from generic memory → tighten the persona.
 
-Both pass → agent + WhatsApp + memory are wired correctly over your engine.
+Both pass → setup complete.
 
 ---
 
+## Summary: who does what
+
+```
+AGENT (you) does:                          HUMAN does (2 stops):
+  setup.sh (deps, DB, tests, seed)           hermes model   (LLM + API key)
+  start the API                              hermes gateway setup (WhatsApp)
+  install Hermes
+  register MCP server (config.yaml)
+  set the system prompt (COACH_AGENT.md)
+  run the discipline test
+```
+
 ## Troubleshooting
 
-| Symptom | Likely cause / fix |
+| Symptom | Fix |
 |---|---|
-| `curl /health` fails | API not running — start step 3; check the port |
-| agent says "cannot reach coach API" | `WMT_API_BASE` wrong, or API not running on that host/port |
+| `curl /health` fails | API not running — redo step 2; check `/tmp/wmt_api.log` |
+| agent: "cannot reach coach API" | `WMT_API_BASE` wrong or API down |
 | tools don't appear in Hermes | config.yaml path wrong, or Hermes not restarted |
-| agent invents workouts | system prompt not set from COACH_AGENT.md (step 7) |
-| `./setup.sh` permission denied | `chmod +x setup.sh` |
-| tests fail on a fresh box | `pip install -r requirements.txt` then re-run |
+| agent invents workouts | persona not set from COACH_AGENT.md (step 6) |
+| `./setup.sh` permission denied | `chmod +x setup.sh` and retry |
+| `hermes` not found after install | source your shell rc, or restart the shell |
