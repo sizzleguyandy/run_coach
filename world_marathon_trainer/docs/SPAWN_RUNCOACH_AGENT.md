@@ -92,19 +92,24 @@ secret). If the isolated instance needs its own model config, set it:
 HERMES_HOME="$RUNCOACH_HOME" hermes model     # ⛔ HUMAN if a new API key is needed
 ```
 
-## Step 6 — WhatsApp channel
+## Step 6 — WhatsApp channel (one gateway, multi-agent)
 
-The gateway is already installed. Bind the Run Coach to a WhatsApp route so
-athletes reach the coach, not the personal assistant:
+The gateway is already installed and supports multiple agents through the one
+gateway — so the Run Coach does NOT need its own number. Register the Run Coach
+(`$RUNCOACH_HOME`) as an agent on the existing gateway and set a routing rule so
+athlete messages reach the coach, not the personal assistant. Common routing
+options: by contact (athlete contacts → coach), by keyword/mention, or a
+dedicated agent handle.
 
 ```
-⛔ HUMAN: give the Run Coach its own WhatsApp number/route (or confirm the
-   routing), and complete any auth. Run `hermes gateway status` to confirm.
+⛔ HUMAN: register $RUNCOACH_HOME as an agent on the gateway and choose the
+   routing rule (which messages reach the coach). Confirm with
+   `hermes gateway status`.
 ```
 
-(A separate number keeps athlete conversations cleanly on the coach. If your
-gateway supports routing multiple personas on one number, route coach traffic to
-`$RUNCOACH_HOME`.)
+Check `hermes gateway --help` for the multi-agent registration + routing config;
+the goal is simply that athlete traffic is dispatched to the `$RUNCOACH_HOME`
+agent while your own chats stay with the personal assistant.
 
 ## Step 7 — Verify (discipline test)
 
