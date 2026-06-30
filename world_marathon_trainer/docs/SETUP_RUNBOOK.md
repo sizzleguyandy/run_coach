@@ -58,7 +58,12 @@ mcp_servers:
       WMT_API_BASE: "http://localhost:8000"
 ```
 Replace `<PROJECT>` with the absolute path. This is a CUSTOM MCP server — do NOT
-run `hermes mcp serve` (that's the opposite direction).
+run `hermes mcp serve` (that's the opposite direction). After editing, reload:
+```bash
+# in a Hermes session:  /reload-mcp     (or just restart Hermes)
+```
+Verify the tools are visible (e.g. `hermes mcp` / list tools) — you should see
+`marathon_coach` with `get_today`, `get_plan`, `race_knowledge`, etc.
 
 ## Step 5 — Confirm the MCP requirements  (agent)
 
@@ -67,13 +72,20 @@ python -c "import mcp, httpx; print('mcp deps ok')"
 ```
 (`setup.sh` already installed these via requirements.txt; this just confirms.)
 
-## Step 6 — Set the coach's system prompt / persona  (agent)
+## Step 6 — Set the coach's identity (SOUL.md)  (agent)
 
-Set the contents of `<PROJECT>/docs/COACH_AGENT.md` as the agent's system prompt
-(Hermes persona / system-prompt config). If you're unsure of the exact field or
-command, consult `hermes --help` / `hermes config --help` and the local docs;
-the goal is simply that COACH_AGENT.md becomes the active system prompt. This is
-the guardrail that stops the agent inventing training.
+Hermes loads its identity from `~/.hermes/SOUL.md` and injects it verbatim as the
+first thing in the system prompt. No command is needed — just write the file:
+
+```bash
+cp "<PROJECT>/docs/COACH_AGENT.md" ~/.hermes/SOUL.md
+```
+
+(Hermes auto-creates a starter SOUL.md and never overwrites a user one, so copy
+over it explicitly.) Since this whole Hermes instance IS the marathon coach, the
+coach brief is its durable identity. This is the guardrail that stops the agent
+inventing training. If you came from openclaw, do NOT reuse the old builder
+SOUL.md here — use COACH_AGENT.md.
 
 ## Step 7 — HUMAN CHECKPOINT 1: select the LLM  ⛔ STOP
 
@@ -91,8 +103,8 @@ Print this and wait (interactive auth you cannot complete):
 
 ```
 HUMAN: run `hermes gateway setup`, choose WhatsApp, and complete the auth
-       (QR scan / Business Cloud). Then `hermes gateway status` should show
-       it connected. Tell me when done.
+       (QR scan / Business Cloud), then `hermes gateway start`.
+       `hermes gateway status` should show it connected. Tell me when done.
 ```
 
 ## Step 9 — Verify (agent + human together)

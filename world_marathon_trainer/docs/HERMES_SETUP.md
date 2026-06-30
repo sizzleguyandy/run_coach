@@ -64,10 +64,15 @@ hermes gateway status
 ## 5. The system prompt — the openclaw guardrail (IMPORTANT)
 
 Hermes is autonomous and self-improving. Constrain it so it never freelances
-coaching. **Give it `docs/COACH_AGENT.md` as its system prompt / persona** —
-that file is written to be used verbatim and contains the full role, hard rules,
-tool guide, and onboarding flow. Set it via Hermes's system-prompt config (or a
-persona file) before running the discipline test below.
+coaching. **Install `docs/COACH_AGENT.md` as its identity** — Hermes loads
+`~/.hermes/SOUL.md` verbatim as the first thing in the system prompt:
+
+```bash
+cp docs/COACH_AGENT.md ~/.hermes/SOUL.md
+```
+
+That file contains the full role, hard rules, tool guide, and onboarding flow.
+Do this before the discipline test below.
 
 ## 6. The discipline test (decides if Hermes is right for you)
 

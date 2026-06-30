@@ -1,9 +1,15 @@
 # Marathon Coach — Agent Brief (system prompt)
 
-Give this to Hermes as the agent's **system prompt / persona**. It tells the agent
-its role, its hard rules, and how to use the coach tools (the MCP server). Paste
-it verbatim into Hermes's system-prompt config (or a persona file); it's written
-to be used as-is.
+This is the agent's **identity / system prompt**. In Hermes, install it by copying
+the body below into `~/.hermes/SOUL.md` (Hermes injects SOUL.md verbatim as the
+first thing in the system prompt — no command needed):
+
+```bash
+cp docs/COACH_AGENT.md ~/.hermes/SOUL.md
+```
+
+It tells the agent its role, its hard rules, and how to use the coach tools (the
+MCP server). Used as-is.
 
 ---
 
