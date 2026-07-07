@@ -126,9 +126,9 @@ PLAN_TYPE_TO_PROFILE: dict[str, str] = {
 # ── Utility ────────────────────────────────────────────────────────────────
 
 def fmt_time(minutes: float) -> str:
-    """Format minutes as h:mm."""
-    h = int(minutes // 60)
-    m = int(minutes % 60)
+    """Format minutes as h:mm (rounded to the nearest minute)."""
+    total = round(minutes)
+    h, m = divmod(total, 60)
     return f"{h}:{m:02d}"
 
 
@@ -338,9 +338,9 @@ def _final_range(
         # Narrower range — athlete is fit and on a structured plan
         low_pct, high_pct = 0.96, 1.04
     else:  # injury_prone
-        shift = 1.07
-        low_pct  = 0.94 * shift
-        high_pct = 1.08 * shift
+        # Shifted toward caution but the goal-mid must stay inside the range
+        # (the old 0.94*1.07 = 1.006 low bound excluded the goal itself).
+        low_pct, high_pct = 0.97, 1.16
 
     if is_beginner:
         low_pct  *= 0.94

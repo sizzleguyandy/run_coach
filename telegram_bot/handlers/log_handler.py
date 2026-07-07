@@ -1,4 +1,6 @@
 from coach_core.engine.adaptation import calculate_vo2x_from_race
+import html
+
 import httpx
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes, ConversationHandler
@@ -10,6 +12,29 @@ LOG_DAY, LOG_DISTANCE, LOG_DURATION, LOG_RPE = range(4)
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 _LOG_KEYS = ("log_day", "log_distance", "log_duration", "log_rpe")
+
+
+
+async def _current_week_number(client, telegram_id: str, athlete: dict) -> int:
+    """Current plan week, capped at total_weeks like the server's own view.
+
+    The old local floor((today-start)/7)+1 kept counting past plan end, so
+    late runs were logged into weeks that /plan and /dashboard never read.
+    Prefer the server's capped week; fall back to the local calc (capped by
+    the plan's total_weeks when the plan fetch fails entirely).
+    """
+    from datetime import date
+    import math
+    try:
+        r = await client.get(f"{API_BASE_URL}/plan/{telegram_id}/current")
+        if r.status_code == 200:
+            wn = r.json().get("week_number")
+            if isinstance(wn, int) and wn >= 1:
+                return wn
+    except Exception:
+        pass
+    start = date.fromisoformat(athlete["start_date"])
+    return max(1, math.floor((date.today() - start).days / 7) + 1)
 
 
 def _clear_log(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -124,10 +149,7 @@ async def log_get_rpe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             athlete_r.raise_for_status()
             athlete = athlete_r.json()
 
-            from datetime import date
-            import math
-            start = date.fromisoformat(athlete["start_date"])
-            week_number = max(1, math.floor((date.today() - start).days / 7) + 1)
+            week_number = await _current_week_number(client, telegram_id, athlete)
 
             payload = {
                 "telegram_id":        telegram_id,
@@ -143,7 +165,7 @@ async def log_get_rpe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
         except Exception as e:
             await update.effective_message.reply_text(
-                f"❌ <b>Failed to save run.</b>\n\n<i>{e}</i>",
+                f"❌ <b>Failed to save run.</b>\n\n<i>{html.escape(str(e))}</i>",
                 reply_markup=ReplyKeyboardRemove(),
                 parse_mode="HTML",
             )
@@ -193,10 +215,7 @@ async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             athlete_r.raise_for_status()
             athlete = athlete_r.json()
 
-            from datetime import date
-            import math
-            start = date.fromisoformat(athlete["start_date"])
-            week_number = max(1, math.floor((date.today() - start).days / 7) + 1)
+            week_number = await _current_week_number(client, telegram_id, athlete)
 
             summary_r = await client.get(
                 f"{API_BASE_URL}/log/{telegram_id}/week/{week_number}/summary"
@@ -397,7 +416,7 @@ async def race_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             result = r.json()
         except Exception as e:
             await update.effective_message.reply_text(
-                f"❌ <b>Could not save race.</b>\n\n<i>{e}</i>",
+                f"❌ <b>Could not save race.</b>\n\n<i>{html.escape(str(e))}</i>",
                 reply_markup=ReplyKeyboardRemove(),
                 parse_mode="HTML",
             )

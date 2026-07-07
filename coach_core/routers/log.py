@@ -106,6 +106,9 @@ async def get_month_summary(telegram_id: str, year: int, month: int, db: AsyncSe
     from datetime import date as date_type
     import calendar as cal_module
 
+    if not (1 <= month <= 12):
+        raise HTTPException(status_code=400, detail="month must be 1-12.")
+
     result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
     athlete = result.scalar_one_or_none()
     if not athlete:
@@ -471,9 +474,13 @@ async def adapt_c25k(telegram_id: str, week_number: int, db: AsyncSession = Depe
 
     next_week, notes = adapt_c25k_week(week_number, planned_run_minutes, actual_run_minutes)
 
-    # Persist updated week
+    # Persist updated week.
+    # Completion check: next_week is capped at 12, so `next_week > week_number`
+    # can never be true at week 12 — use the advance criterion (>=80% compliance)
+    # directly to graduate the athlete.
     athlete.c25k_week = next_week
-    if next_week > week_number and week_number >= 12:
+    compliance_ratio = actual_run_minutes / max(planned_run_minutes, 0.1)
+    if week_number >= 12 and compliance_ratio >= 0.80:
         athlete.c25k_completed = True
     await db.commit()
 

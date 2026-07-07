@@ -34,7 +34,15 @@ def adapt_next_week(
       aggressive:   under=−10%, over=+3%, RPE9 cap=−10%
     """
     profile    = get_profile(training_profile)
-    compliance = summary.actual_volume / max(summary.planned_volume, 0.1)
+    if summary.planned_volume < 1.0:
+        # Planned rest / near-zero week: any running produces a meaningless
+        # compliance ratio (5 km vs 0 planned = 5000%), which used to trigger
+        # progressive boosts and VO2X nudges. A rest week carries no training
+        # signal — return next week's plan unchanged.
+        return round(planned_next_volume, 1), current_vo2x, [
+            "😌 Rest week complete — next week continues as planned."
+        ]
+    compliance = summary.actual_volume / summary.planned_volume
     notes: list[str] = []
     vol_modifier = 1.0
     new_vo2x = current_vo2x

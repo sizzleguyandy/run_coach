@@ -140,13 +140,14 @@ _TWO_OCEANS_BATCHES = [
     {"batch": "H", "fastest_min": 120, "slowest_min": 124},
     {"batch": "J", "fastest_min": 124, "slowest_min": 128},
     {"batch": "K", "fastest_min": 128, "slowest_min": 130},
-    {"batch": "L", "fastest_min": 130, "slowest_min": 150},
+    {"batch": "L", "fastest_min": 130, "slowest_min": 133},
     {"batch": "M", "fastest_min": 133, "slowest_min": 135},
     {"batch": "N", "fastest_min": 135, "slowest_min": 140},
     {"batch": "P", "fastest_min": 140, "slowest_min": 143},
     {"batch": "Q", "fastest_min": 143, "slowest_min": 149},
     {"batch": "R", "fastest_min": 149, "slowest_min": 150},
-    {"batch": "S", "fastest_min": 150, "slowest_min": 209},
+    # NOTE: the original "S" row (150-209) fully shadowed batches T-Y in this
+    # first-match table; T-Y are contiguous from 150 so S was removed.
     {"batch": "T", "fastest_min": 150, "slowest_min": 157},
     {"batch": "U", "fastest_min": 157, "slowest_min": 161},
     {"batch": "V", "fastest_min": 161, "slowest_min": 169},

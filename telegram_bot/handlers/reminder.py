@@ -32,9 +32,27 @@ def _esc(s) -> str:
     return _html.escape(str(s)) if s else ""
 
 
+async def _send_ai_html(send_fn, text: str, **kwargs):
+    """Send AI-generated text with parse_mode=HTML, falling back to plain text.
+
+    n8n/LLM replies occasionally contain stray '<' or unclosed tags that make
+    Telegram reject the whole message ("can't parse entities") — the athlete
+    then gets nothing. Plain-text fallback keeps the content deliverable.
+    """
+    try:
+        return await send_fn(text=text, parse_mode="HTML", **kwargs)
+    except Exception:
+        return await send_fn(text=text, **kwargs)
+
+
 logger = logging.getLogger(__name__)
 
-SA_TZ = timezone(timedelta(hours=2))   # UTC+2 — South Africa has no DST
+# Reminder clock timezone. Defaults to South Africa (UTC+2, no DST); set
+# REMINDER_TZ_OFFSET_HOURS on the deployment for other regions (e.g. 0/1 for
+# the UK). NOTE: this is still a single global clock — per-athlete timezones
+# need a country/tz column on Athlete (future work).
+_TZ_OFFSET = float(os.getenv("REMINDER_TZ_OFFSET_HOURS", "2"))
+SA_TZ = timezone(timedelta(hours=_TZ_OFFSET))
 
 # ── n8n Report Coach webhook ───────────────────────────────────────────────────
 # Set N8N_REPORT_COACH_URL in .env to enable weekly + monthly AI feedback reports.
@@ -680,10 +698,10 @@ async def _send_weekly_reports(bot: Bot, athletes: list[dict]) -> None:
 
             header = f"📊 <b>Week {week_num} Training Report</b>\n{'─' * 22}\n\n"
 
-            await bot.send_message(
-                chat_id=tid,
-                text=header + feedback,
-                parse_mode=ParseMode.HTML,
+            import functools
+            await _send_ai_html(
+                functools.partial(bot.send_message, chat_id=tid),
+                header + feedback,
                 reply_markup=kb,
             )
             sent += 1
@@ -1184,15 +1202,15 @@ async def cmd_weekreport(update, context) -> None:
         ]])
         await msg.delete()
         header = f"📊 <b>Week {week_num} Training Report</b>  <i>(test)</i>\n{'─' * 22}\n\n"
-        await update.effective_message.reply_text(
+        await _send_ai_html(
+            update.effective_message.reply_text,
             header + feedback,
-            parse_mode="HTML",
             reply_markup=kb,
         )
 
     except Exception as e:
         logger.exception(f"cmd_weekreport failed for {telegram_id}: {e}")
-        await msg.edit_text(f"❌ Error generating report: <code>{e}</code>", parse_mode="HTML")
+        await msg.edit_text(f"❌ Error generating report: <code>{_esc(e)}</code>", parse_mode="HTML")
 
 
 async def cmd_monthreport(update, context) -> None:
@@ -1304,15 +1322,15 @@ async def cmd_monthreport(update, context) -> None:
         await msg.delete()
         month_label = date.today().strftime("%B")
         header = f"📅 <b>{month_label} Training Report</b>  <i>(test)</i>\n{'─' * 22}\n\n"
-        await update.effective_message.reply_text(
+        await _send_ai_html(
+            update.effective_message.reply_text,
             header + feedback,
-            parse_mode="HTML",
             reply_markup=kb,
         )
 
     except Exception as e:
         logger.exception(f"cmd_monthreport failed for {telegram_id}: {e}")
-        await msg.edit_text(f"❌ Error generating report: <code>{e}</code>", parse_mode="HTML")
+        await msg.edit_text(f"❌ Error generating report: <code>{_esc(e)}</code>", parse_mode="HTML")
 
 
 async def cmd_racereport(update, context) -> None:
@@ -1483,15 +1501,15 @@ async def cmd_racereport(update, context) -> None:
         ]])
         await msg.delete()
         header = f"🏁 <b>{athlete.get('race_name') or 'Race Day'} — Eve Briefing</b>  <i>(test)</i>\n{'─' * 26}\n\n"
-        await update.effective_message.reply_text(
+        await _send_ai_html(
+            update.effective_message.reply_text,
             header + feedback,
-            parse_mode="HTML",
             reply_markup=kb,
         )
 
     except Exception as e:
         logger.exception(f"cmd_racereport failed for {telegram_id}: {e}")
-        await msg.edit_text(f"❌ Error generating report: <code>{e}</code>", parse_mode="HTML")
+        await msg.edit_text(f"❌ Error generating report: <code>{_esc(e)}</code>", parse_mode="HTML")
 
 
 # ── Strength reminders ───────────────────────────────────────────────────────

@@ -658,7 +658,8 @@ async def get_experience(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return RECENT_DIST
 
-    else:
+    import re as _re
+    if _re.search(r"\bno\b", text) or "beginner" in text or "returning" in text:
         _ud(context)["v2_has_recent_race"] = False
         rows = [[k] for k in BEGINNER_DISPLAY.keys()]
         await update.effective_message.reply_text(
@@ -668,6 +669,17 @@ async def get_experience(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode="HTML",
         )
         return BEGINNER_ABILITY
+
+    # Unrecognised input — re-prompt instead of silently assuming beginner
+    # (a typo here used to misroute experienced runners into the C25K path).
+    await update.effective_message.reply_text(
+        "Please choose one of the options below 👇",
+        reply_markup=ReplyKeyboardMarkup(
+            [["Yes, I have a recent race time"], ["No, I am a beginner / returning runner"], ["I know my VO2X number"]],
+            one_time_keyboard=True, resize_keyboard=True,
+        ),
+    )
+    return EXPERIENCE
 
 
 # ── Recent race: distance ──────────────────────────────────────────────────

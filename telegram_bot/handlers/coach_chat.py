@@ -98,7 +98,12 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         ]
     ])
 
-    await update.message.reply_text(reply, reply_markup=back_kb, parse_mode="HTML")
+    # LLM output can contain stray '<' / unclosed tags that Telegram rejects —
+    # fall back to plain text so the athlete still gets the answer.
+    try:
+        await update.message.reply_text(reply, reply_markup=back_kb, parse_mode="HTML")
+    except Exception:
+        await update.message.reply_text(reply, reply_markup=back_kb)
     return ConversationHandler.END
 
 
