@@ -12,11 +12,11 @@ import logging
 import os
 from datetime import date
 
-import httpx
-import random
-import string
+import time as _time
 
-from fastapi import APIRouter, HTTPException, Query
+import httpx
+
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/mobile", tags=["mobile"])
@@ -25,14 +25,32 @@ _log = logging.getLogger(__name__)
 N8N_CHAT_WEBHOOK = os.getenv("N8N_CHAT_WEBHOOK", "")
 API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/") + "/v1"
 
+# Link codes are generated bot-side (telegram_bot/handlers/mycode.py) using a
+# cryptographically random 8-char body — the lookup below only reads them.
 
-# ── Link code helpers ─────────────────────────────────────────────────────────
 
-def _generate_link_code(name: str) -> str:
-    """Generate a short human-friendly link code e.g. ANDY-4821."""
-    prefix = ''.join(c for c in name.upper() if c.isalpha())[:4].ljust(4, 'X')
-    digits = ''.join(random.choices(string.digits, k=4))
-    return f"{prefix}-{digits}"
+# ── Simple in-memory rate limiter for the code lookup ────────────────────────
+# Codes are unguessable, but throttling per client shuts down enumeration
+# attempts entirely. Fixed window: max attempts per IP per window.
+
+_RATE_LIMIT_ATTEMPTS = 10
+_RATE_LIMIT_WINDOW_S = 60.0
+_lookup_attempts: dict[str, tuple[int, float]] = {}
+
+
+def _check_rate_limit(client_ip: str) -> None:
+    now = _time.monotonic()
+    count, window_start = _lookup_attempts.get(client_ip, (0, now))
+    if now - window_start > _RATE_LIMIT_WINDOW_S:
+        count, window_start = 0, now
+    if count >= _RATE_LIMIT_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many attempts — try again in a minute")
+    _lookup_attempts[client_ip] = (count + 1, window_start)
+    # Opportunistic cleanup so the dict can't grow unbounded
+    if len(_lookup_attempts) > 10_000:
+        cutoff = now - _RATE_LIMIT_WINDOW_S
+        for ip in [ip for ip, (_, ws) in _lookup_attempts.items() if ws < cutoff]:
+            del _lookup_attempts[ip]
 
 
 # ── VO2X from race result ─────────────────────────────────────────────────────
@@ -51,15 +69,20 @@ async def compute_vo2x_from_race(
 # ── Link code: look up athlete by code ───────────────────────────────────────
 
 @router.get("/athlete/by-code/{code}")
-async def get_athlete_by_link_code(code: str):
+async def get_athlete_by_link_code(code: str, request: Request):
     """
     Look up an athlete by their link code (generated in the Telegram bot via /mycode).
     Returns the athlete's telegram_id and name so the mobile app can adopt it as its
     own athlete identifier — no new record is created.
+
+    Rate-limited per client IP to prevent code enumeration.
     """
     from sqlalchemy import select
     from coach_core.database import get_db
     from coach_core.models import Athlete
+
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_ip)
 
     code = code.strip().upper()
 

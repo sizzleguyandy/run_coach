@@ -221,16 +221,24 @@ def _base_time(inp: PredictionInput) -> tuple[float, Optional[float]]:
         time = inp.recent_race_time_minutes or 240.0
         vo2x = calculate_vo2x_from_race(dist, time)
 
-        # Marathon equivalent using Daniels power law
-        marathon_eq = time * (42.195 / dist) ** 1.06
-
         if abs(dist - inp.race_distance_km) < 0.01:
-            # Same distance — no hill or scaling factor needed.
-            # VO2X already reflects performance at this distance/terrain.
-            base = marathon_eq
+            # Same distance — the runner's demonstrated time IS the base.
+            # No hill or scaling factor needed: VO2X already reflects
+            # performance at this distance/terrain.
+            base = time
         else:
-            # Different distance — scale and apply hill penalty for terrain delta
-            base = marathon_eq * (inp.race_distance_km / 42.195) * (1.0 + inp.hill_factor)
+            # Different distance — Riegel power-law scaling (same exponents as
+            # _daniels_time_minutes so both prediction paths agree), plus the
+            # hill penalty for the terrain delta.
+            if inp.race_distance_km <= 43.0:
+                base = time * (inp.race_distance_km / dist) ** 1.06
+            else:
+                # Ultra target: normalise to marathon first, then scale up
+                # with the ultra exponent.
+                marathon_eq = time * (42.195 / dist) ** 1.06
+                exp = 1.10 if inp.race_distance_km <= 60.0 else 1.12
+                base = marathon_eq * (inp.race_distance_km / 42.195) ** exp
+            base *= (1.0 + inp.hill_factor)
         return base, vo2x
 
     else:

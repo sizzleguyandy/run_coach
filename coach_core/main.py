@@ -26,14 +26,23 @@ app = FastAPI(
 )
 
 # ── CORS — configurable via ALLOWED_ORIGINS env var (comma-separated) ─────────
-# Default "*" is kept for local dev; set ALLOWED_ORIGINS in production.
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
-_allowed_origins = [o.strip() for o in _raw_origins.split(",")] if _raw_origins != "*" else ["*"]
+# With an explicit allowlist, credentialed requests are permitted from those
+# origins. Without one we fall back to "*" for dev convenience, but credentials
+# are then disabled: wildcard + allow_credentials lets any website act as a
+# logged-in visitor, so that combination is never configured.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+
+if _raw_origins and _raw_origins != "*":
+    _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    _allow_credentials = True
+else:
+    _allowed_origins = ["*"]
+    _allow_credentials = False
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=True,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
