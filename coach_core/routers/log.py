@@ -229,7 +229,9 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
         training_profile=athlete.training_profile or "conservative",
     )
 
-    # Persist VO2X change if updated
+    # Persist VO2X change if updated (capture the prior value first —
+    # after the assignment below, athlete.vo2x == new_vo2x and the delta is lost)
+    vo2x_before = athlete.vo2x
     if new_vo2x != athlete.vo2x:
         athlete.vo2x = new_vo2x
         db.add(VO2XHistory(
@@ -259,8 +261,7 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
     await db.commit()
 
     # ── VO2X level-up Mini App notification ───────────────────────────
-    _vo2x_before = round(athlete.vo2x - (new_vo2x - athlete.vo2x), 1) if new_vo2x != athlete.vo2x else athlete.vo2x
-    if new_vo2x != athlete.vo2x and int(new_vo2x) > int(_vo2x_before):
+    if int(new_vo2x) > int(vo2x_before):
         try:
             from telegram_bot.handlers.reminder import send_levelup_notification
             from telegram_bot.config import TELEGRAM_TOKEN
@@ -268,7 +269,7 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
             import asyncio as _aio
             _aio.create_task(send_levelup_notification(
                 Bot(token=TELEGRAM_TOKEN), telegram_id,
-                athlete.name, _vo2x_before, new_vo2x, "adjusted",
+                athlete.name, vo2x_before, new_vo2x, "adjusted",
             ))
         except Exception:
             pass
@@ -287,7 +288,7 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
         "actual_volume": round(actual_volume, 1),
         "compliance_pct": round(compliance_ratio * 100, 1),
         "adjusted_next_week_volume": adj_volume,
-        "vo2x_before": athlete.vo2x if new_vo2x == athlete.vo2x else round(athlete.vo2x - (new_vo2x - athlete.vo2x), 1),
+        "vo2x_before": vo2x_before,
         "vo2x_after": new_vo2x,
         "coaching_notes": all_notes,
         "streak_weeks": athlete.streak_weeks,

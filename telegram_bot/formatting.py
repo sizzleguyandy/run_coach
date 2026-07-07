@@ -2,6 +2,7 @@
 Formatting helpers for all TR3D Telegram messages and inline keyboards.
 """
 from __future__ import annotations
+import html
 from datetime import date
 from typing import Optional
 
@@ -257,9 +258,27 @@ def dashboard_keyboard():
     ])
 
 
+def _plan_notices(week: dict) -> list[str]:
+    """Server-attached coaching notices (base-building gate, short-plan note).
+
+    The plan router adds `base_building_warning` and `plan_note` to the week
+    dict specifically for client display — surface them so athletes see why
+    their plan has no quality phases.
+    """
+    lines: list[str] = []
+    warning = week.get("base_building_warning")
+    if warning:
+        lines += ["", f"<i>{warning}</i>"]
+    note = week.get("plan_note")
+    if note:
+        lines += ["", f"<i>{note}</i>"]
+    return lines
+
+
 # ── Main menu ──────────────────────────────────────────────────────────────
 
 def format_main_menu(athlete_name: str, plan_type: str = "full") -> str:
+    athlete_name = html.escape(str(athlete_name or "Athlete"))
     if plan_type == "c25k":
         return (
             f"{_hdr('TR3D')}\n\n"
@@ -364,6 +383,7 @@ def format_today(week: dict, logged_today: bool = False, paces: "dict | None" = 
         _sec("WEEK"),
         f"Week <b>{week_num}</b>  ·  {phase_emoji} {phase_name}  ·  <b>{total_vol} km</b> target",
     ]
+    lines += _plan_notices(week)
 
     return "\n".join(lines)
 
@@ -446,6 +466,9 @@ def format_week(week: dict, summary: "dict | None" = None) -> str:
         f"<i>{week_start}{week_end_str}  ·  {total_vol} km planned</i>",
         "",
     ]
+    notices = _plan_notices(week)
+    if notices:
+        lines += [n for n in notices if n] + [""]
 
     # ── Day table in <pre> block for perfect alignment ─────────────────────
     #
@@ -575,7 +598,7 @@ def format_dashboard(
         return _format_c25k_dashboard(athlete, week, log_summary)
 
     # ── Data ───────────────────────────────────────────────────────────────
-    name          = athlete.get("name", "Athlete")
+    name          = html.escape(str(athlete.get("name") or "Athlete"))
     vo2x          = athlete.get("vo2x", "?")
     race_distance = athlete.get("race_distance", "")
     race_date_str = athlete.get("race_date", "")
@@ -687,7 +710,7 @@ def format_dashboard(
 
 
 def _format_c25k_dashboard(athlete: dict, week: dict, log_summary: dict) -> str:
-    name       = athlete.get("name", "Athlete")
+    name       = html.escape(str(athlete.get("name") or "Athlete"))
     c25k_week  = athlete.get("c25k_week", 1)
     runs       = log_summary.get("runs", [])
     sessions_done = log_summary.get("sessions_logged", 0)

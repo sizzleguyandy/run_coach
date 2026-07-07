@@ -24,6 +24,14 @@ from telegram.constants import ParseMode
 from telegram_bot.config import API_BASE_URL
 from telegram_bot.formatting import WEEKDAY_TO_DAY
 
+import html as _html
+
+
+def _esc(s) -> str:
+    """Escape user-controlled text for parse_mode=HTML messages."""
+    return _html.escape(str(s)) if s else ""
+
+
 logger = logging.getLogger(__name__)
 
 SA_TZ = timezone(timedelta(hours=2))   # UTC+2 — South Africa has no DST
@@ -131,7 +139,7 @@ def levelup_url(vo2x_old: float, vo2x_new: float, name: str, source: str) -> str
 # ── Message builders ─────────────────────────────────────────────────────────
 
 def _build_reminder_message(athlete: dict, week: dict, today_key: str) -> str:
-    name      = athlete.get("name", "Runner")
+    name      = _esc(athlete.get("name") or "Runner")
     days      = week.get("days", {})
     plan_type = week.get("plan_type", "full")
     session   = days.get(today_key, {})
@@ -184,7 +192,7 @@ def _build_sunday_game_message(
     actual_km: float = 0,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Build the Sunday evening weekly recap + game button."""
-    name       = athlete.get("name", "Runner")
+    name       = _esc(athlete.get("name") or "Runner")
     week_num   = week.get("week_number", 1)
     total_wks  = week.get("total_weeks") or 18
     # Use preset race name if available
@@ -308,7 +316,7 @@ def _build_race_prep_message(
     Build a proactive RACE PREP push message for a countdown milestone.
     Uses race knowledge RAG to inject course-specific tips.
     """
-    name       = athlete.get("name", "Runner")
+    name       = _esc(athlete.get("name") or "Runner")
     race_label = athlete.get("race_name") or "your race"
     weeks_left = days_to_race // 7
 
@@ -1522,7 +1530,8 @@ async def _send_strength_reminders(
         try:
             async with httpx.AsyncClient(timeout=8) as client:
                 r = await client.get(f"{API_BASE_URL}/plan/{tid}/current")
-                phase_name = r.json().get("phase_name", "Base") if r.status_code == 200 else "Base"
+                _PHASE_NAMES = {1: "Base", 2: "Repetitions", 3: "Intervals", 4: "Threshold"}
+                phase_name = _PHASE_NAMES.get(r.json().get("phase"), "Base") if r.status_code == 200 else "Base"
         except Exception:
             phase_name = "Base"
 
@@ -1626,7 +1635,7 @@ async def send_daily_reminders(bot: Bot) -> None:
 
                 # Count runs logged this week
                 summary = await _fetch_week_summary(tid, week_num)
-                runs_logged = summary.get("sessions_completed", 0)
+                runs_logged = summary.get("sessions_logged", 0)
                 actual_km   = summary.get("actual_volume_km", 0)
 
                 # Weeks to race
