@@ -19,7 +19,7 @@ from typing import Optional
 
 import math as _math
 
-from coach_core.engine.adaptation import calculate_vo2x_from_race
+from tr3d_core.engine.adaptation import calculate_vo2x_from_race
 
 # Daniels velocity-formula constants (mirrors paces.py — kept local to avoid circular import)
 _DA = 0.000104

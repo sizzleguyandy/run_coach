@@ -23,7 +23,7 @@ Telegram User
                      │ HTTP POST/GET
                      ▼
 ┌──────────────────────────────────────────────────────┐
-│         FASTAPI ENGINE  (coach_core/)               │
+│         FASTAPI ENGINE  (tr3d_core/)               │
 │  Handles: all business logic, VO2X, plans, logs    │
 │  Pure engine modules: no I/O, deterministic         │
 └────────────────────┬─────────────────────────────────┘
@@ -43,7 +43,7 @@ Open-Meteo API   n8n webhooks     GitHub Pages
                                     level-up screen)
 ```
 
-**Key principle:** The Telegram bot is a thin UI layer. All business logic lives in `coach_core/engine/`. The bot only calls the API via `httpx` — it never imports engine modules directly.
+**Key principle:** The Telegram bot is a thin UI layer. All business logic lives in `tr3d_core/engine/`. The bot only calls the API via `httpx` — it never imports engine modules directly.
 
 ---
 
@@ -55,7 +55,7 @@ run_coach/
 ├── coach.db                       # SQLite database (delete after schema changes)
 ├── bot_persistence.pkl            # PTB session persistence (PicklePersistence)
 │
-├── coach_core/
+├── tr3d_core/
 │   ├── main.py                    # FastAPI app entry point, CORS, scheduler start
 │   ├── database.py                # async SQLAlchemy engine + session factory
 │   ├── models.py                  # SQLAlchemy ORM models (athletes, run_logs, vo2x_history)

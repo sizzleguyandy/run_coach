@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, ForeignKey, Text
 from datetime import datetime
-from coach_core.database import Base
+from tr3d_core.database import Base
 
 
 class Athlete(Base):

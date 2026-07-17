@@ -39,7 +39,7 @@ run_coach/
 ├── .env                          ← you create this (copy from .env.example)
 ├── requirements.txt
 ├── run.sh
-├── coach_core/
+├── tr3d_core/
 │   ├── __init__.py
 │   ├── database.py
 │   ├── main.py
@@ -77,12 +77,12 @@ run_coach/
 
 **Commands to create all directories:**
 ```bash
-mkdir -p run_coach/coach_core/engine
-mkdir -p run_coach/coach_core/routers
+mkdir -p run_coach/tr3d_core/engine
+mkdir -p run_coach/tr3d_core/routers
 mkdir -p run_coach/telegram_bot/handlers
-touch run_coach/coach_core/__init__.py
-touch run_coach/coach_core/engine/__init__.py
-touch run_coach/coach_core/routers/__init__.py
+touch run_coach/tr3d_core/__init__.py
+touch run_coach/tr3d_core/engine/__init__.py
+touch run_coach/tr3d_core/routers/__init__.py
 touch run_coach/telegram_bot/__init__.py
 touch run_coach/telegram_bot/handlers/__init__.py
 ```
@@ -98,23 +98,23 @@ Copy each supplied source file into its correct location:
 | `requirements.txt` | `run_coach/requirements.txt` |
 | `run.sh` | `run_coach/run.sh` |
 | `.env.example` | `run_coach/.env.example` |
-| `database.py` | `run_coach/coach_core/database.py` |
-| `main.py` | `run_coach/coach_core/main.py` |
-| `models.py` | `run_coach/coach_core/models.py` |
-| `adaptation.py` | `run_coach/coach_core/engine/adaptation.py` |
-| `c25k.py` | `run_coach/coach_core/engine/c25k.py` |
-| `hills.py` | `run_coach/coach_core/engine/hills.py` |
-| `paces.py` | `run_coach/coach_core/engine/paces.py` |
-| `phases.py` | `run_coach/coach_core/engine/phases.py` |
-| `plan_builder.py` | `run_coach/coach_core/engine/plan_builder.py` |
-| `sa_cities.py` | `run_coach/coach_core/engine/sa_cities.py` |
-| `truepace.py` | `run_coach/coach_core/engine/truepace.py` |
-| `volume.py` | `run_coach/coach_core/engine/volume.py` |
-| `workouts.py` | `run_coach/coach_core/engine/workouts.py` |
-| `routers/athlete.py` | `run_coach/coach_core/routers/athlete.py` |
-| `routers/log.py` | `run_coach/coach_core/routers/log.py` |
-| `routers/plan.py` | `run_coach/coach_core/routers/plan.py` |
-| `routers/weather.py` | `run_coach/coach_core/routers/weather.py` |
+| `database.py` | `run_coach/tr3d_core/database.py` |
+| `main.py` | `run_coach/tr3d_core/main.py` |
+| `models.py` | `run_coach/tr3d_core/models.py` |
+| `adaptation.py` | `run_coach/tr3d_core/engine/adaptation.py` |
+| `c25k.py` | `run_coach/tr3d_core/engine/c25k.py` |
+| `hills.py` | `run_coach/tr3d_core/engine/hills.py` |
+| `paces.py` | `run_coach/tr3d_core/engine/paces.py` |
+| `phases.py` | `run_coach/tr3d_core/engine/phases.py` |
+| `plan_builder.py` | `run_coach/tr3d_core/engine/plan_builder.py` |
+| `sa_cities.py` | `run_coach/tr3d_core/engine/sa_cities.py` |
+| `truepace.py` | `run_coach/tr3d_core/engine/truepace.py` |
+| `volume.py` | `run_coach/tr3d_core/engine/volume.py` |
+| `workouts.py` | `run_coach/tr3d_core/engine/workouts.py` |
+| `routers/athlete.py` | `run_coach/tr3d_core/routers/athlete.py` |
+| `routers/log.py` | `run_coach/tr3d_core/routers/log.py` |
+| `routers/plan.py` | `run_coach/tr3d_core/routers/plan.py` |
+| `routers/weather.py` | `run_coach/tr3d_core/routers/weather.py` |
 | `bot.py` | `run_coach/telegram_bot/bot.py` |
 | `config.py` | `run_coach/telegram_bot/config.py` |
 | `formatting.py` | `run_coach/telegram_bot/formatting.py` |
@@ -221,7 +221,7 @@ This starts both services and shows their PIDs. Press Ctrl+C to stop both.
 **Terminal 1 — API:**
 ```bash
 cd run_coach
-uvicorn coach_core.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn tr3d_core.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **Terminal 2 — Bot:**
@@ -263,18 +263,18 @@ import sys, unittest.mock as mock
 
 for mod in ['sqlalchemy','sqlalchemy.ext.asyncio','sqlalchemy.orm',
             'dotenv','httpx','telegram','telegram.ext',
-            'coach_core.database','coach_core.models']:
+            'tr3d_core.database','tr3d_core.models']:
     sys.modules[mod] = mock.MagicMock()
 sys.path.insert(0, '.')
 
-from coach_core.engine.phases import get_phases
-from coach_core.engine.volume import build_volume_curve, get_taper_weeks
-from coach_core.engine.paces import calculate_paces, format_pace
-from coach_core.engine.c25k import build_c25k_week, adapt_c25k_week
-from coach_core.engine.truepace import compute_adjustment
-from coach_core.engine.sa_cities import find_city, SA_CITIES
-from coach_core.engine.hills import should_replace_with_hills
-from coach_core.engine.adaptation import calculate_vo2x_from_race, adapt_next_week, WeekSummary
+from tr3d_core.engine.phases import get_phases
+from tr3d_core.engine.volume import build_volume_curve, get_taper_weeks
+from tr3d_core.engine.paces import calculate_paces, format_pace
+from tr3d_core.engine.c25k import build_c25k_week, adapt_c25k_week
+from tr3d_core.engine.truepace import compute_adjustment
+from tr3d_core.engine.sa_cities import find_city, SA_CITIES
+from tr3d_core.engine.hills import should_replace_with_hills
+from tr3d_core.engine.adaptation import calculate_vo2x_from_race, adapt_next_week, WeekSummary
 
 results = []
 def test(name, cond):
@@ -355,7 +355,7 @@ User (Telegram)
       ↕  messages / inline buttons
 Telegram Bot  (telegram_bot/)
       ↕  HTTP on localhost:8000
-FastAPI Engine  (coach_core/)
+FastAPI Engine  (tr3d_core/)
       ↕  async SQLAlchemy
 SQLite Database  (coach.db)
 
@@ -369,9 +369,9 @@ FastAPI also calls:
 1. Telegram → bot.py → onboarding.py (ConversationHandler)
 2. 3 to 9 questions collected depending on path
 3. onboarding.py → POST /athlete/ or POST /athlete/c25k
-4. coach_core/routers/athlete.py → writes to SQLite
+4. tr3d_core/routers/athlete.py → writes to SQLite
 5. onboarding.py → GET /plan/{id}/current
-6. coach_core/routers/plan.py → build_full_plan() or build_c25k_week()
+6. tr3d_core/routers/plan.py → build_full_plan() or build_c25k_week()
 7. Week 1 returned → formatted → sent to user with inline keyboard
 ```
 
@@ -391,7 +391,7 @@ FastAPI also calls:
 
 ## Module Responsibilities
 
-### `coach_core/engine/`
+### `tr3d_core/engine/`
 
 | Module | Responsibility |
 |---|---|
@@ -406,7 +406,7 @@ FastAPI also calls:
 | `truepace.py` | Fetches Open-Meteo weather, computes pace adjustment factor, 1-hour cache. |
 | `sa_cities.py` | 30-city SA lookup table. find_city() resolves names and aliases to lat/lon. |
 
-### `coach_core/routers/`
+### `tr3d_core/routers/`
 
 | Router | Endpoints |
 |---|---|
@@ -555,9 +555,9 @@ created_at            DATETIME
 - Ensure the bot process is running (check Terminal 2 or `./run.sh` output)
 - Make sure you are messaging the correct bot username
 
-**`ModuleNotFoundError: No module named 'coach_core'`**
+**`ModuleNotFoundError: No module named 'tr3d_core'`**
 - You must run Python from inside the `run_coach/` directory
-- Check that `coach_core/__init__.py` exists (even if empty)
+- Check that `tr3d_core/__init__.py` exists (even if empty)
 
 **`sqlite3.OperationalError: no such table`**
 - The database initialises automatically on first API start
@@ -580,7 +580,7 @@ created_at            DATETIME
 
 **`PORT already in use` on port 8000**
 - Another service is using port 8000
-- Change the port: `uvicorn coach_core.main:app --port 8001`
+- Change the port: `uvicorn tr3d_core.main:app --port 8001`
 - Also update `API_BASE_URL=http://localhost:8001` in `.env`
 
 ---
@@ -598,7 +598,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/path/to/run_coach
-ExecStart=uvicorn coach_core.main:app --host 0.0.0.0 --port 8000
+ExecStart=uvicorn tr3d_core.main:app --host 0.0.0.0 --port 8000
 Restart=always
 EnvironmentFile=/path/to/run_coach/.env
 
@@ -637,7 +637,7 @@ The current setup uses long-polling (`run_polling`). For production, Telegram we
 3. No other changes needed
 
 **Changing VO2X drop threshold:**
-1. Edit `VO2X_DROP_THRESHOLD = 3.0` in `coach_core/routers/log.py`
+1. Edit `VO2X_DROP_THRESHOLD = 3.0` in `tr3d_core/routers/log.py`
 
 ---
 

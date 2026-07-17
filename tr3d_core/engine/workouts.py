@@ -1,8 +1,8 @@
 import math
-from coach_core.engine.paces import Paces, format_pace
-from coach_core.engine.workout_templates import get_template_session
-from coach_core.engine.phases import PhaseAllocation
-from coach_core.engine.hills import (
+from tr3d_core.engine.paces import Paces, format_pace
+from tr3d_core.engine.workout_templates import get_template_session
+from tr3d_core.engine.phases import PhaseAllocation
+from tr3d_core.engine.hills import (
     should_replace_with_hills,
     week_number_in_phase,
     get_hill_quality_session,
@@ -213,7 +213,7 @@ def _long_run_notes(
 
     # Ultra athletes — walk-break + nutrition prescription for runs >= 20 km in Phase II+
     if race_distance in ("ultra_56", "ultra_90") and long_run_km >= 20 and phase >= 2:
-        from coach_core.engine.workout_templates import get_ultra_long_run_notes
+        from tr3d_core.engine.workout_templates import get_ultra_long_run_notes
         return get_ultra_long_run_notes(
             long_run_km,
             format_pace(paces.easy_min_per_km),
@@ -258,7 +258,7 @@ def _medium_long_session(
         and day == _day_at(1, long_run_day)
     )
     if is_back_to_back:
-        from coach_core.engine.workout_templates import get_ultra_back_to_back_notes
+        from tr3d_core.engine.workout_templates import get_ultra_back_to_back_notes
         return {
             "session": "Back-to-Back Run",
             "km": km,
@@ -511,7 +511,7 @@ def build_week_days(
 
     # Ultra: back-to-back Saturday/Sunday long runs (5-day only, Phases II/III)
     if race_distance in ("ultra", "ultra_56", "ultra_90") and phase in (2, 3):
-        from coach_core.engine.workout_templates import (
+        from tr3d_core.engine.workout_templates import (
             get_ultra_long_run_notes, get_ultra_back_to_back_notes
         )
         ULTRA_CAP = 40.0

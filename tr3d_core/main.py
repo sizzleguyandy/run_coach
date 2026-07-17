@@ -2,14 +2,14 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from coach_core.database import init_db
-from coach_core.routers import athlete, plan, log, weather, admin, predict
-from coach_core.routers import mobile
+from tr3d_core.database import init_db
+from tr3d_core.routers import athlete, plan, log, weather, admin, predict
+from tr3d_core.routers import mobile
 
 # Strength router is disabled — strength sessions are static and loaded app-side.
 # The backend only needs to indicate which days are strength days (handled in plan output).
 # Re-enable when DB-backed strength tracking is added back.
-# from coach_core.routers import strength
+# from tr3d_core.routers import strength
 
 
 @asynccontextmanager

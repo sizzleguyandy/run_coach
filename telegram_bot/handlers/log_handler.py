@@ -1,4 +1,4 @@
-from coach_core.engine.adaptation import calculate_vo2x_from_race
+from tr3d_core.engine.adaptation import calculate_vo2x_from_race
 import html
 
 import httpx

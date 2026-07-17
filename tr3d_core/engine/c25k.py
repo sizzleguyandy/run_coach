@@ -216,7 +216,7 @@ def compute_transition(
     If a 5k time trial was logged: use the Daniels formula.
     If no time trial: estimate from 30-min continuous run distance in week 11/12.
     """
-    from coach_core.engine.adaptation import calculate_vo2x_from_race
+    from tr3d_core.engine.adaptation import calculate_vo2x_from_race
 
     if time_trial_5k_minutes:
         vo2x = calculate_vo2x_from_race(5.0, time_trial_5k_minutes)

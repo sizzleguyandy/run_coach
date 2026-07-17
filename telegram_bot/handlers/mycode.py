@@ -13,8 +13,8 @@ from sqlalchemy import select
 from telegram import Update
 from telegram.ext import ContextTypes
 
-from coach_core.database import AsyncSessionLocal
-from coach_core.models import Athlete
+from tr3d_core.database import AsyncSessionLocal
+from tr3d_core.models import Athlete
 
 # Unambiguous alphabet (no 0/O, 1/I/L) — 8 chars ≈ 1.1 × 10^12 combinations,
 # vs the old 4-digit codes (10,000) which were trivially brute-forceable.

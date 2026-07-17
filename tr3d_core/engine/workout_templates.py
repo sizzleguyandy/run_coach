@@ -307,7 +307,7 @@ def get_template_session(
     Returns a dict matching the existing quality session format:
       { type, detail, warmup_km, cooldown_km, quality_km, total_km }
     """
-    from coach_core.engine.paces import format_pace
+    from tr3d_core.engine.paces import format_pace
 
     pace_strs = {
         "T": format_pace(paces.threshold_min_per_km),

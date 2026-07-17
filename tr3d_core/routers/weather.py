@@ -3,10 +3,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 
-from coach_core.database import get_db
-from coach_core.models import Athlete
-from coach_core.engine.truepace import get_truepace_block, compute_adjustment, fetch_weather
-from coach_core.engine.paces import calculate_paces, format_pace
+from tr3d_core.database import get_db
+from tr3d_core.models import Athlete
+from tr3d_core.engine.truepace import get_truepace_block, compute_adjustment, fetch_weather
+from tr3d_core.engine.paces import calculate_paces, format_pace
 
 router = APIRouter(prefix="/weather", tags=["weather"])
 

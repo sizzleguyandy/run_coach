@@ -6,9 +6,9 @@ from pydantic import BaseModel
 from datetime import date
 from typing import Optional
 
-from coach_core.database import get_db
-from coach_core.models import Athlete, VO2XHistory, RunLog
-from coach_core.engine.paces import calculate_paces, format_pace
+from tr3d_core.database import get_db
+from tr3d_core.models import Athlete, VO2XHistory, RunLog
+from tr3d_core.engine.paces import calculate_paces, format_pace
 
 
 def _require_admin_key(x_admin_key: str = Header(...)) -> None:

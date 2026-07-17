@@ -1,13 +1,13 @@
 import math
 from datetime import date, timedelta
 from typing import Optional
-from coach_core.engine.phases import (
+from tr3d_core.engine.phases import (
     get_phases, get_phases_with_base, get_phase_for_week, PhaseAllocation,
     TEMPLATE_BASE_KM, TEMPLATE_BASE_DISTANCES,
 )
-from coach_core.engine.volume import build_volume_curve, base_phase_for_distance
-from coach_core.engine.paces import calculate_paces, format_pace, Paces
-from coach_core.engine.workouts import build_week_days
+from tr3d_core.engine.volume import build_volume_curve, base_phase_for_distance
+from tr3d_core.engine.paces import calculate_paces, format_pace, Paces
+from tr3d_core.engine.workouts import build_week_days
 
 
 def _resolve_phases(

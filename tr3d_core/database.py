@@ -54,8 +54,8 @@ async def get_db():
 
 async def init_db():
     async with engine.begin() as conn:
-        from coach_core import models  # noqa: F401
+        from tr3d_core import models  # noqa: F401
         await conn.run_sync(Base.metadata.create_all)
 
-    from coach_core.migrations import add_missing_columns
+    from tr3d_core.migrations import add_missing_columns
     await add_missing_columns(engine, Base.metadata)

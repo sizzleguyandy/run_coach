@@ -5,10 +5,10 @@ from pydantic import BaseModel
 from datetime import date
 from typing import Optional
 
-from coach_core.database import get_db
-from coach_core.models import Athlete, RunLog, VO2XHistory
-from coach_core.engine.adaptation import adapt_next_week, WeekSummary, calculate_vo2x_from_race
-from coach_core.engine.plan_builder import build_full_plan, current_week_number
+from tr3d_core.database import get_db
+from tr3d_core.models import Athlete, RunLog, VO2XHistory
+from tr3d_core.engine.adaptation import adapt_next_week, WeekSummary, calculate_vo2x_from_race
+from tr3d_core.engine.plan_builder import build_full_plan, current_week_number
 
 router = APIRouter(prefix="/log", tags=["log"])
 
@@ -475,7 +475,7 @@ async def adapt_c25k(telegram_id: str, week_number: int, db: AsyncSession = Depe
     if athlete.plan_type != "c25k":
         raise HTTPException(status_code=400, detail="Athlete is not on a C25K plan.")
 
-    from coach_core.engine.c25k import adapt_c25k_week, build_c25k_week, _total_run_minutes, get_week_schedule
+    from tr3d_core.engine.c25k import adapt_c25k_week, build_c25k_week, _total_run_minutes, get_week_schedule
 
     sched = get_week_schedule(week_number)
     planned_run_minutes = _total_run_minutes(sched) * 3   # 3 sessions per week
@@ -524,7 +524,7 @@ async def log_c25k_timetrial(data: C25KTimeTrial, db: AsyncSession = Depends(get
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
 
-    from coach_core.engine.c25k import compute_transition
+    from tr3d_core.engine.c25k import compute_transition
     transition = compute_transition(
         time_trial_5k_minutes=data.finish_time_minutes,
         week11_avg_km=data.week_run_km,

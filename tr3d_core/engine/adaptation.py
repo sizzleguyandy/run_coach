@@ -6,7 +6,7 @@ Runs after a week is complete. Takes actual run logs and returns:
   - adjusted VO2X (if warranted)
   - list of human-readable coaching notes
 """
-from coach_core.engine.training_profiles import get_profile
+from tr3d_core.engine.training_profiles import get_profile
 import math
 from dataclasses import dataclass
 from typing import Optional

@@ -5,11 +5,11 @@ from datetime import date
 import json
 import math
 
-from coach_core.database import get_db
-from coach_core.models import Athlete
-from coach_core.engine.plan_builder import build_full_plan, get_current_week
-from coach_core.engine.c25k import build_c25k_week, TOTAL_WEEKS as C25K_TOTAL_WEEKS
-from coach_core.engine.anchor_constants import (
+from tr3d_core.database import get_db
+from tr3d_core.models import Athlete
+from tr3d_core.engine.plan_builder import build_full_plan, get_current_week
+from tr3d_core.engine.c25k import build_c25k_week, TOTAL_WEEKS as C25K_TOTAL_WEEKS
+from tr3d_core.engine.anchor_constants import (
     ANCHOR_FIXED_SESSIONS  as _FIXED_SESSIONS,
     ANCHOR_REST_SESSIONS   as _REST_SESSIONS,
     ANCHOR_BLOCKED_SESSIONS,
@@ -105,7 +105,7 @@ async def get_current_week_plan(telegram_id: str, db: AsyncSession = Depends(get
         weather_factor = 1.0
         if athlete.latitude and athlete.longitude:
             try:
-                from coach_core.engine.truepace import fetch_weather, compute_adjustment
+                from tr3d_core.engine.truepace import fetch_weather, compute_adjustment
                 run_hour = athlete.run_hour or 7
                 weather = await fetch_weather(athlete.latitude, athlete.longitude, run_hour)
                 if weather:

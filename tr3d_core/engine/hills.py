@@ -50,7 +50,7 @@ def week_number_in_phase(week_number: int, phases) -> int:
     Return the 1-based week index within the athlete's current phase.
     Requires a PhaseAllocation object.
     """
-    from coach_core.engine.phases import get_phase_for_week
+    from tr3d_core.engine.phases import get_phase_for_week
     phase = get_phase_for_week(week_number, phases)
     if phase == 1:
         return week_number
