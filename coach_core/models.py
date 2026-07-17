@@ -48,6 +48,15 @@ class Athlete(Base):
     # Generated on first /mycode call. Format: "NAME-XXXX" e.g. "ANDY-4821"
     link_code = Column(String, unique=True, nullable=True, index=True)
 
+    # ── Strava link — OAuth tokens for automated activity sync ────────────────
+    # Populated once the athlete completes the Strava OAuth handshake (via the
+    # gateway/n8n). expires_at is the Strava-issued Unix epoch seconds; the
+    # sync automation is responsible for refreshing before it lapses.
+    strava_athlete_id     = Column(String, unique=True, nullable=True, index=True)
+    strava_access_token   = Column(String, nullable=True)
+    strava_refresh_token  = Column(String, nullable=True)
+    strava_token_expires_at = Column(Integer, nullable=True)
+
     # ── Anchor runs (v1.7) — club/group runs that are fixed each week ─────────
     # JSON: [{"day": "Tue", "km": 10.0}, {"day": "Thu", "km": 8.0}]
     # Max 2 anchors, easy days only. Non-anchor adjustable runs redistribute.
@@ -78,7 +87,10 @@ class RunLog(Base):
     notes = Column(String, nullable=True)
     # v1.6: pace tracking for VO2X pace-gap check
     prescribed_pace_min_per_km = Column(Float, nullable=True)   # stored at log time; doesn't change with VO2X
-    source = Column(String, nullable=True, default="manual")    # "manual" | "treadmill"
+    source = Column(String, nullable=True, default="manual")    # "manual" | "treadmill" | "strava"
+    # Dedup key for automated sync sources — prevents double-logging when the
+    # sync automation re-polls or re-delivers the same Strava activity.
+    strava_activity_id = Column(String, nullable=True, index=True)
     logged_at = Column(DateTime, default=datetime.utcnow)
 
 

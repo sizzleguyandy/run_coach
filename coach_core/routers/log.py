@@ -24,7 +24,10 @@ class RunLogCreate(BaseModel):
     notes: Optional[str] = None
     # v1.6: pace tracking (treadmill auto-log + pace-gap VO2X check)
     prescribed_pace_min_per_km: Optional[float] = None
-    source: Optional[str] = "manual"   # "manual" | "treadmill"
+    source: Optional[str] = "manual"   # "manual" | "treadmill" | "strava"
+    # Strava activity ID — required when source="strava" so re-syncs don't
+    # create duplicate logs for the same activity.
+    strava_activity_id: Optional[str] = None
 
 
 class RaceResult(BaseModel):
@@ -42,6 +45,20 @@ async def log_run(data: RunLogCreate, db: AsyncSession = Depends(get_db)):
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
 
+    # Dedup automated syncs: re-polling the same Strava activity must not
+    # create a second log entry. Manual logs never set strava_activity_id,
+    # so this only ever short-circuits automated sources.
+    if data.strava_activity_id:
+        existing_result = await db.execute(
+            select(RunLog).where(
+                RunLog.athlete_id == athlete.id,
+                RunLog.strava_activity_id == data.strava_activity_id,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            return {"status": "duplicate_skipped", "log_id": existing.id}
+
     log = RunLog(
         athlete_id=athlete.id,
         week_number=data.week_number,
@@ -53,6 +70,7 @@ async def log_run(data: RunLogCreate, db: AsyncSession = Depends(get_db)):
         notes=data.notes,
         prescribed_pace_min_per_km=data.prescribed_pace_min_per_km,
         source=data.source or "manual",
+        strava_activity_id=data.strava_activity_id,
     )
     db.add(log)
     await db.commit()

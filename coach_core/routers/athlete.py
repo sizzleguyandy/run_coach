@@ -361,3 +361,90 @@ async def update_location(
     await db.commit()
     await db.refresh(athlete)
     return athlete
+
+
+# ── Strava link ─────────────────────────────────────────────────────────────
+# Tokens are only ever written/read by the trusted sync automation (n8n),
+# never by end-user-facing clients — hence the admin-key guard on both
+# endpoints below, same as /athlete/all.
+
+class StravaLinkUpdate(BaseModel):
+    strava_athlete_id: str
+    access_token: str
+    refresh_token: str
+    expires_at: int   # Strava-issued Unix epoch seconds
+
+
+@router.patch("/{telegram_id}/strava-link", status_code=200)
+async def link_strava(
+    telegram_id: str,
+    data: StravaLinkUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_require_admin_key),
+):
+    """Store/refresh Strava OAuth tokens for an athlete after the OAuth handshake."""
+    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    athlete = result.scalar_one_or_none()
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found.")
+
+    existing_result = await db.execute(
+        select(Athlete).where(
+            Athlete.strava_athlete_id == data.strava_athlete_id,
+            Athlete.id != athlete.id,
+        )
+    )
+    if existing_result.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="This Strava account is already linked to another athlete.")
+
+    athlete.strava_athlete_id       = data.strava_athlete_id
+    athlete.strava_access_token     = data.access_token
+    athlete.strava_refresh_token    = data.refresh_token
+    athlete.strava_token_expires_at = data.expires_at
+    await db.commit()
+    return {"status": "linked", "telegram_id": telegram_id}
+
+
+@router.delete("/{telegram_id}/strava-link", status_code=204)
+async def unlink_strava(
+    telegram_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_require_admin_key),
+):
+    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    athlete = result.scalar_one_or_none()
+    if not athlete:
+        raise HTTPException(status_code=404, detail="Athlete not found.")
+
+    athlete.strava_athlete_id       = None
+    athlete.strava_access_token     = None
+    athlete.strava_refresh_token    = None
+    athlete.strava_token_expires_at = None
+    await db.commit()
+
+
+@router.get("/by-strava/{strava_athlete_id}")
+async def get_athlete_by_strava_id(
+    strava_athlete_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(_require_admin_key),
+):
+    """
+    Resolve a Strava athlete ID (as carried on webhook events) to the internal
+    athlete, including stored OAuth tokens — used by the sync automation to
+    know which athlete an incoming Strava activity belongs to and which
+    credentials to call the Strava API with.
+    """
+    result = await db.execute(select(Athlete).where(Athlete.strava_athlete_id == strava_athlete_id))
+    athlete = result.scalar_one_or_none()
+    if not athlete:
+        raise HTTPException(status_code=404, detail="No athlete linked to this Strava account.")
+
+    return {
+        "telegram_id":         athlete.telegram_id,
+        "name":                athlete.name,
+        "start_date":          athlete.start_date.isoformat(),
+        "access_token":        athlete.strava_access_token,
+        "refresh_token":       athlete.strava_refresh_token,
+        "expires_at":          athlete.strava_token_expires_at,
+    }
