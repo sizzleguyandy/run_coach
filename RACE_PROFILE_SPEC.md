@@ -1,6 +1,9 @@
 # Race-Specific Training Spec (Race Profiles)
 
-**Status:** Design — not yet implemented
+**Status:** Implemented — data in `engine/race_profiles.py`, tag effects in
+`engine/workouts.py`, threading in `engine/plan_builder.py` (via
+`preset_race_id`). Plan responses carry a `race_profile` key showing the
+active tags.
 **Goal:** When an athlete selects a preset race (e.g. Cape Town Marathon), the
 *training block itself* — not just the race-day pacing guide — adapts to that
 race's specific demands.

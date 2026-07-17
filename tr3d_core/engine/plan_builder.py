@@ -108,13 +108,20 @@ def build_full_plan(
     quality_day: str = "Tue",
     training_profile: str = "conservative",
     extra_training_days: str = "Thu",
+    preset_race_id: Optional[str] = None,
 ) -> dict:
     """
     Build the complete training plan for an athlete.
 
+    If preset_race_id matches a known race, its training profile (demand tags —
+    see RACE_PROFILE_SPEC.md) flavours session content and notes for that
+    specific race. Volume, phases, and paces are never affected. Unknown or
+    absent preset ids produce exactly the generic plan.
+
     Returns a dict containing:
     - total_weeks, phases summary, paces summary
     - base_building: how the 48km template-base requirement was handled (21km+ only)
+    - race_profile: preset id + active demand tags (null when no preset)
     - weeks: list of per-week dicts (week_number, phase, week_start, planned_volume_km, days)
     """
     days_to_race = (race_date - start_date).days
@@ -126,6 +133,9 @@ def build_full_plan(
     volumes = build_volume_curve(current_weekly_mileage, race_distance, phases, training_profile)
     paces = calculate_paces(vo2x)
 
+    from tr3d_core.engine.race_profiles import get_training_profile
+    profile = get_training_profile(preset_race_id)
+
     weeks = []
     # Race day-of-week (Mon..Sun) — used to anchor the race-week template
     race_day_name = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][race_date.weekday()]
@@ -133,7 +143,7 @@ def build_full_plan(
     for i, volume in enumerate(volumes, start=1):
         phase = get_phase_for_week(i, phases)
         week_start = start_date + timedelta(weeks=i - 1)
-        days = build_week_days(i, phase, volume, paces, race_distance, phases, race_hilliness, long_run_day, quality_day, extra_training_days, race_day_name)
+        days = build_week_days(i, phase, volume, paces, race_distance, phases, race_hilliness, long_run_day, quality_day, extra_training_days, race_day_name, profile)
         weeks.append({
             "week_number": i,
             "phase": phase,
@@ -144,6 +154,10 @@ def build_full_plan(
 
     return {
         "total_weeks": total_weeks,
+        "race_profile": (
+            {"preset_race_id": preset_race_id, "tags": sorted(profile["tags"])}
+            if preset_race_id else None
+        ),
         "phases": {
             "phase_I_weeks": phases.phase_I,
             "phase_II_weeks": phases.phase_II,

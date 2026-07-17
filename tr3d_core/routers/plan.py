@@ -128,6 +128,7 @@ async def get_current_week_plan(telegram_id: str, db: AsyncSession = Depends(get
         quality_day=athlete.quality_day or "Tue",
         training_profile=athlete.training_profile or "conservative",
         extra_training_days=athlete.extra_training_days or "Thu",
+        preset_race_id=athlete.preset_race_id,
     )
     week = get_current_week(plan, date.today(), athlete.start_date)
     if not week:
@@ -188,6 +189,7 @@ async def get_week_plan(telegram_id: str, week_number: int, db: AsyncSession = D
         quality_day=athlete.quality_day or "Tue",
         training_profile=athlete.training_profile or "conservative",
         extra_training_days=athlete.extra_training_days or "Thu",
+        preset_race_id=athlete.preset_race_id,
     )
     for week in plan["weeks"]:
         if week["week_number"] == week_number:
@@ -227,4 +229,5 @@ async def get_full_plan(telegram_id: str, db: AsyncSession = Depends(get_db)):
         quality_day=athlete.quality_day or "Tue",
         training_profile=athlete.training_profile or "conservative",
         extra_training_days=athlete.extra_training_days or "Thu",
+        preset_race_id=athlete.preset_race_id,
     )

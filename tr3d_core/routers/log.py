@@ -225,6 +225,7 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
         quality_day=athlete.quality_day or "Tue",
         training_profile=athlete.training_profile or "conservative",
         extra_training_days=athlete.extra_training_days or "Thu",
+        preset_race_id=athlete.preset_race_id,
     )
     planned_week = next((w for w in plan["weeks"] if w["week_number"] == week_number), None)
     planned_volume = planned_week["planned_volume_km"] if planned_week else actual_volume

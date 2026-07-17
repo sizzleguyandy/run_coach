@@ -137,18 +137,30 @@ def get_quality_session(
     paces: Paces,
     hilliness: str = "low",
     week_in_phase: int = 1,
+    tags: frozenset = frozenset(),
 ) -> dict:
     """
     Tuesday quality session — selects from Daniels template library with rotation.
 
+    Race-profile demand tags (RACE_PROFILE_SPEC.md) are checked first:
+      - trail_terrain: fortnightly Phase III trail time-on-feet substitution
+      - hill_quality:  forces the full (high-hilliness) hill replacement matrix
     If hilliness warrants it, delegates to the hill workout engine instead.
     Otherwise routes to workout_templates.get_template_session() which:
       - Selects the correct Daniels mileage category (A–G) for the athlete
       - Rotates through all sessions in that category using week_in_phase
       - Returns a different workout each week within the same phase
     """
-    if should_replace_with_hills(phase, hilliness, week_in_phase):
-        return get_hill_quality_session(phase, hilliness, weekly_volume)
+    # Trail races: every other Phase III quality session becomes trail
+    # time-on-feet (even weeks — odd weeks stay hills/templates as usual).
+    if "trail_terrain" in tags and phase == 3 and week_in_phase % 2 == 0:
+        return _trail_quality_session(weekly_volume)
+
+    # hill_quality tag forces the 100% replacement matrix regardless of the
+    # athlete's generic hilliness field; hilliness remains the fallback.
+    effective_hilliness = "high" if "hill_quality" in tags else hilliness
+    if should_replace_with_hills(phase, effective_hilliness, week_in_phase):
+        return get_hill_quality_session(phase, effective_hilliness, weekly_volume)
 
     return get_template_session(
         phase=phase,
@@ -156,6 +168,31 @@ def get_quality_session(
         paces=paces,
         week_in_phase=week_in_phase,
     )
+
+
+def _trail_quality_session(weekly_volume: float) -> dict:
+    """
+    trail_terrain substitution (Phase III, fortnightly): continuous time on
+    feet over technical terrain instead of a track/road workout. Same dict
+    shape as get_template_session() so it drops into the week builder.
+    """
+    km = round(max(8.0, min(weekly_volume * 0.20, 16.0)), 1)
+    return {
+        "type": "Trail Time-on-Feet",
+        "detail": (
+            f"{km} km continuous on trail / technical terrain @ E–M effort — "
+            "run by effort, not pace"
+        ),
+        "warmup_km": 1.0,
+        "cooldown_km": 1.0,
+        "quality_km": km,
+        "total_km": round(km + 2.0, 1),
+        "notes": (
+            "Race-specific terrain work: practice footing, short controlled "
+            "downhill strides, and steady climbing effort. Pace is irrelevant — "
+            "stay at conversational-to-steady effort throughout."
+        ),
+    }
 
 
 def _scale_sessions(targets: dict[str, float], weekly_volume: float) -> dict[str, float]:
@@ -207,6 +244,7 @@ def _long_run_notes(
     race_distance: str,
     phase: int,
     hilliness: str,
+    tags: frozenset = frozenset(),
 ) -> str:
     """Build the long run description string."""
     base = f"{long_run_km} km easy @ E pace ({format_pace(paces.easy_min_per_km)})"
@@ -221,7 +259,18 @@ def _long_run_notes(
             phase,
         )
 
-    if hilliness == "high" and phase in (3, 4):
+    # power_hike tag: structured walk-break practice in Phase II/III long runs.
+    # (Ultra_56/90 runs >= 20 km already carry walk-break notes above.)
+    if "power_hike" in tags and phase in (2, 3):
+        return (
+            f"{long_run_km} km easy @ E pace ({format_pace(paces.easy_min_per_km)}) — "
+            "structured walk breaks: 8 min run / 1 min power-hike from the start. "
+            "This rehearses race-day walking strategy before fatigue forces it."
+        )
+
+    # hilly_long_runs tag widens the hilly note to Phase II+; the generic
+    # high-hilliness field keeps its original Phase III/IV behaviour.
+    if ("hilly_long_runs" in tags and phase >= 2) or (hilliness == "high" and phase in (3, 4)):
         return get_hilly_long_run_note(long_run_km, format_pace(paces.marathon_min_per_km))
     if race_distance in ("marathon", "ultra") and phase == 3:
         steady_km = min(16, round(long_run_km * 0.35, 1))
@@ -269,6 +318,67 @@ def _medium_long_session(
     return {"session": "Medium-Long Run", "km": km, "notes": f"{km} km easy"}
 
 
+def _apply_profile_overlay(
+    days: dict,
+    tags: frozenset,
+    profile: dict,
+    phase: int,
+    week_number: int,
+    phases: PhaseAllocation,
+) -> dict:
+    """
+    Apply race-profile note-level tags to a fully built week (RACE_PROFILE_SPEC.md).
+
+    Mutates and returns `days`. Notes only — never km, sessions, or structure.
+    Runs after _rebalance_to_target so appended notes survive rebalancing.
+    """
+    if not tags and not profile.get("long_run_note"):
+        return days
+
+    weeks_to_race = phases.total_weeks - week_number
+    long_run = next((d for d in days.values() if d.get("session") == "Long Run"), None)
+
+    if long_run is not None:
+        extras = []
+        if "trail_terrain" in tags and phase >= 2:
+            extras.append("Run on trail / technical terrain where possible.")
+        if "altitude" in tags and phase in (3, 4):
+            extras.append("Run at altitude if possible.")
+            if phase == 4:
+                extras.append(
+                    "Race altitude plan: arrive either <48h before the race or "
+                    ">2 weeks before — the days between are the worst window."
+                )
+        if "wind_exposure" in tags and phase in (3, 4):
+            extras.append(
+                "Pick an exposed route: practice holding effort (not pace) into wind."
+            )
+        if "heat_humidity" in tags and weeks_to_race <= 4:
+            extras.append(
+                "Practice race-day hydration: drink on schedule every 15–20 min."
+            )
+        custom = profile.get("long_run_note")
+        if custom and phase >= 3:
+            extras.append(custom)
+        if extras:
+            long_run["notes"] = long_run["notes"] + " | " + " ".join(extras)
+
+    # heat_humidity: one easy run per week becomes a heat-adaptation run
+    # in the final 4 weeks before the race.
+    if "heat_humidity" in tags and weeks_to_race <= 4:
+        recovery = next(
+            (d for d in days.values() if d.get("session") == "Recovery Run"), None
+        )
+        if recovery is not None:
+            recovery["notes"] = (
+                recovery["notes"]
+                + " | Heat-adaptation run: overdress slightly or run at the "
+                "warmest comfortable hour. Easy effort only."
+            )
+
+    return days
+
+
 def build_week_days(
     week_number: int,
     phase: int,
@@ -281,6 +391,7 @@ def build_week_days(
     quality_day: str = "Tue",
     extra_training_days: str = "Thu",
     race_day_name: str = "Sat",
+    profile: dict | None = None,
 ) -> dict:
     """
     Build the 7-day session dict for a training week.
@@ -299,7 +410,14 @@ def build_week_days(
       Recovery    >= 4.0 km
       Medium-long >= 5.0 km
       Long        >= 7.0 km
+
+    `profile` is an optional race training profile (engine/race_profiles.py):
+    demand tags + note strings that flavour sessions for a specific preset
+    race. None/empty produces exactly the generic plan.
     """
+    profile = profile or {"tags": frozenset(), "long_run_note": None, "race_week_note": None}
+    tags: frozenset = frozenset(profile.get("tags", ()))
+
     is_race_week = week_number == phases.total_weeks
 
     # ── Race week (fixed regardless of volume) ─────────────────────────────
@@ -330,6 +448,14 @@ def build_week_days(
                 result[d] = {"session": "Rest", "km": 0, "notes": "Recovery — celebrate!"}
             else:
                 result[d] = race_week_template.get(days_before, {"session": "Rest", "km": 0, "notes": "Rest"})
+        # Race-specific race-week reminder (race profile)
+        race_week_note = profile.get("race_week_note")
+        if race_week_note:
+            race_day = result[race_day_name]
+            result[race_day_name] = {
+                **race_day,
+                "notes": f"{race_day['notes']} {race_week_note}",
+            }
         return result
 
     # ── Parse extra training days chosen by athlete ───────────────────────
@@ -341,7 +467,7 @@ def build_week_days(
 
     # ── Quality session (unchanged across all day counts) ──────────────────
     wip     = week_number_in_phase(week_number, phases)
-    quality = get_quality_session(phase, weekly_volume, paces, hilliness, wip)
+    quality = get_quality_session(phase, weekly_volume, paces, hilliness, wip, tags)
 
     # ── 3-DAY WEEK (< 30 km) ──────────────────────────────────────────────
     if num_days == 3:
@@ -385,13 +511,13 @@ def build_week_days(
                 result[d] = {
                     "session": "Long Run",
                     "km": long_run_km,
-                    "notes": _long_run_notes(long_run_km, paces, race_distance, phase, hilliness),
+                    "notes": _long_run_notes(long_run_km, paces, race_distance, phase, hilliness, tags),
                 }
             else:
                 result[d] = {"session": "Rest", "km": 0, "notes": "Full rest"}
         if race_distance not in ("ultra", "ultra_56", "ultra_90"):
             _rebalance_to_target(result, weekly_volume)
-        return result
+        return _apply_profile_overlay(result, tags, profile, phase, week_number, phases)
 
     # ── 4-DAY WEEK (30–50 km) ─────────────────────────────────────────────
     if num_days == 4:
@@ -439,13 +565,13 @@ def build_week_days(
                 result[d] = {
                     "session": "Long Run",
                     "km": long_run_km,
-                    "notes": _long_run_notes(long_run_km, paces, race_distance, phase, hilliness),
+                    "notes": _long_run_notes(long_run_km, paces, race_distance, phase, hilliness, tags),
                 }
             else:
                 result[d] = {"session": "Rest", "km": 0, "notes": "Rest or easy walk"}
         if race_distance not in ("ultra", "ultra_56", "ultra_90"):
             _rebalance_to_target(result, weekly_volume)
-        return result
+        return _apply_profile_overlay(result, tags, profile, phase, week_number, phases)
 
     # ── 5-DAY WEEK (> 50 km) — original full-week logic ───────────────────
     long_run_km  = get_long_run_km(weekly_volume, race_distance)
@@ -500,7 +626,7 @@ def build_week_days(
             days[d] = {
                 "session": "Long Run",
                 "km": long_run_km,
-                "notes": _long_run_notes(long_run_km, paces, race_distance, phase, hilliness),
+                "notes": _long_run_notes(long_run_km, paces, race_distance, phase, hilliness, tags),
             }
         else:
             days[d] = {
@@ -546,8 +672,10 @@ def build_week_days(
             ),
         }
 
-    # High hilliness: downhill repeats on alternating Fridays (Phases III/IV)
-    if hilliness == "high" and phase in (3, 4):
+    # Downhill repeats on alternating Fridays (Phases III/IV) — triggered by
+    # the downhill_resilience race-profile tag, with the generic high-hilliness
+    # field kept as the fallback for non-preset athletes.
+    if ("downhill_resilience" in tags or hilliness == "high") and phase in (3, 4):
         if wip % 2 == 0:
             dl = get_downhill_session(weekly_volume, is_taper=(phase == 4))
             days["Fri"] = dl
@@ -555,4 +683,4 @@ def build_week_days(
     if race_distance not in ("ultra", "ultra_56", "ultra_90"):
         _rebalance_to_target(days, weekly_volume)
 
-    return days
+    return _apply_profile_overlay(days, tags, profile, phase, week_number, phases)
