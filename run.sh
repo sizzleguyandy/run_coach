@@ -14,7 +14,7 @@ echo "📦 Installing dependencies..."
 pip install -r requirements.txt -q
 
 echo "🚀 Starting FastAPI engine on :8000..."
-uvicorn coach_core.main:app --host 0.0.0.0 --port 8000 --reload &
+uvicorn tr3d_core.main:app --host 0.0.0.0 --port 8000 --reload &
 API_PID=$!
 
 sleep 2

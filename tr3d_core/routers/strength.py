@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import and_
 
-from coach_core.database import get_db
-from coach_core.models import Athlete, StrengthTemplate, StrengthLog, RunLog, VO2XHistory
-from coach_core.engine.strength_adaptation import (
+from tr3d_core.database import get_db
+from tr3d_core.models import Athlete, StrengthTemplate, StrengthLog, RunLog, VO2XHistory
+from tr3d_core.engine.strength_adaptation import (
     compute_strength_block_hours,
     is_running_blocked,
     block_expires_in_hours,

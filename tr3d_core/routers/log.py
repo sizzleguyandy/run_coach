@@ -5,10 +5,10 @@ from pydantic import BaseModel
 from datetime import date
 from typing import Optional
 
-from coach_core.database import get_db
-from coach_core.models import Athlete, RunLog, VO2XHistory
-from coach_core.engine.adaptation import adapt_next_week, WeekSummary, calculate_vo2x_from_race
-from coach_core.engine.plan_builder import build_full_plan, current_week_number
+from tr3d_core.database import get_db
+from tr3d_core.models import Athlete, RunLog, VO2XHistory
+from tr3d_core.engine.adaptation import adapt_next_week, WeekSummary, calculate_vo2x_from_race
+from tr3d_core.engine.plan_builder import build_full_plan, current_week_number
 
 router = APIRouter(prefix="/log", tags=["log"])
 
@@ -24,7 +24,10 @@ class RunLogCreate(BaseModel):
     notes: Optional[str] = None
     # v1.6: pace tracking (treadmill auto-log + pace-gap VO2X check)
     prescribed_pace_min_per_km: Optional[float] = None
-    source: Optional[str] = "manual"   # "manual" | "treadmill"
+    source: Optional[str] = "manual"   # "manual" | "treadmill" | "strava"
+    # Strava activity ID — required when source="strava" so re-syncs don't
+    # create duplicate logs for the same activity.
+    strava_activity_id: Optional[str] = None
 
 
 class RaceResult(BaseModel):
@@ -42,6 +45,20 @@ async def log_run(data: RunLogCreate, db: AsyncSession = Depends(get_db)):
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
 
+    # Dedup automated syncs: re-polling the same Strava activity must not
+    # create a second log entry. Manual logs never set strava_activity_id,
+    # so this only ever short-circuits automated sources.
+    if data.strava_activity_id:
+        existing_result = await db.execute(
+            select(RunLog).where(
+                RunLog.athlete_id == athlete.id,
+                RunLog.strava_activity_id == data.strava_activity_id,
+            )
+        )
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            return {"status": "duplicate_skipped", "log_id": existing.id}
+
     log = RunLog(
         athlete_id=athlete.id,
         week_number=data.week_number,
@@ -53,6 +70,7 @@ async def log_run(data: RunLogCreate, db: AsyncSession = Depends(get_db)):
         notes=data.notes,
         prescribed_pace_min_per_km=data.prescribed_pace_min_per_km,
         source=data.source or "manual",
+        strava_activity_id=data.strava_activity_id,
     )
     db.add(log)
     await db.commit()
@@ -207,6 +225,7 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
         quality_day=athlete.quality_day or "Tue",
         training_profile=athlete.training_profile or "conservative",
         extra_training_days=athlete.extra_training_days or "Thu",
+        preset_race_id=athlete.preset_race_id,
     )
     planned_week = next((w for w in plan["weeks"] if w["week_number"] == week_number), None)
     planned_volume = planned_week["planned_volume_km"] if planned_week else actual_volume
@@ -457,7 +476,7 @@ async def adapt_c25k(telegram_id: str, week_number: int, db: AsyncSession = Depe
     if athlete.plan_type != "c25k":
         raise HTTPException(status_code=400, detail="Athlete is not on a C25K plan.")
 
-    from coach_core.engine.c25k import adapt_c25k_week, build_c25k_week, _total_run_minutes, get_week_schedule
+    from tr3d_core.engine.c25k import adapt_c25k_week, build_c25k_week, _total_run_minutes, get_week_schedule
 
     sched = get_week_schedule(week_number)
     planned_run_minutes = _total_run_minutes(sched) * 3   # 3 sessions per week
@@ -506,7 +525,7 @@ async def log_c25k_timetrial(data: C25KTimeTrial, db: AsyncSession = Depends(get
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
 
-    from coach_core.engine.c25k import compute_transition
+    from tr3d_core.engine.c25k import compute_transition
     transition = compute_transition(
         time_trial_5k_minutes=data.finish_time_minutes,
         week11_avg_km=data.week_run_km,

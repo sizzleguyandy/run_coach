@@ -22,7 +22,7 @@ from telegram.ext import (
 )
 
 from telegram_bot.config import API_BASE_URL
-from coach_core.engine.anchor_constants import ANCHOR_BLOCKED_SESSIONS as ANCHOR_BLOCKED
+from tr3d_core.engine.anchor_constants import ANCHOR_BLOCKED_SESSIONS as ANCHOR_BLOCKED
 
 _log = logging.getLogger(__name__)
 

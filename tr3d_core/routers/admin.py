@@ -24,8 +24,8 @@ from pydantic import BaseModel
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from coach_core.database import get_db
-from coach_core.models import Athlete, RunLog, VO2XHistory
+from tr3d_core.database import get_db
+from tr3d_core.models import Athlete, RunLog, VO2XHistory
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -413,7 +413,7 @@ async def stats(
 ):
     """Quick platform stats — total athletes, plan type breakdown."""
     from sqlalchemy import func
-    from coach_core.models import Athlete
+    from tr3d_core.models import Athlete
 
     result = await db.execute(select(Athlete.plan_type, func.count()).group_by(Athlete.plan_type))
     rows = result.fetchall()

@@ -33,7 +33,7 @@ The existing monolith (FastAPI + Telegram bot + n8n + SQLite) is extended as fol
 | Scheduler | APScheduler (existing) | Send reminders on user-selected strength days |
 | AI coaching | n8n (update existing workflows) | Inject strength summary into weekly/monthly reports and coach chat |
 
-All new code lives in `coach_core/strength/` (backend) and a new GitHub Pages directory `strength/` for the mini-app.
+All new code lives in `tr3d_core/strength/` (backend) and a new GitHub Pages directory `strength/` for the mini-app.
 
 ---
 

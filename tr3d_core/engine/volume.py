@@ -1,6 +1,6 @@
 from typing import List
-from coach_core.engine.phases import PhaseAllocation, TEMPLATE_BASE_KM
-from coach_core.engine.training_profiles import get_profile
+from tr3d_core.engine.phases import PhaseAllocation, TEMPLATE_BASE_KM
+from tr3d_core.engine.training_profiles import get_profile
 
 # Midpoint of Daniels target peak ranges per race distance
 # ultra_56 = Two Oceans (56km), ultra_90 = Comrades (90km)

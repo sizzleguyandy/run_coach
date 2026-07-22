@@ -40,7 +40,7 @@
 └─────────────────────┬──────────────────────────────────────────────┘
                       │
 ┌─────────────────────▼──────────────────────────────────────────────┐
-│                CORE ENGINE  (coach_core/engine/)                    │
+│                CORE ENGINE  (tr3d_core/engine/)                    │
 │                                                                     │
 │  phases.py            Phase allocation (I/II/III/IV)                │
 │  volume.py            Volume curve + distance-specific taper        │
@@ -580,7 +580,7 @@ run_coach/
 ├── requirements.txt
 ├── .env.example
 │
-├── coach_core/
+├── tr3d_core/
 │   ├── main.py            FastAPI app, CORS, /v1 + legacy routers, /health
 │   ├── database.py        Async SQLite session + init_db()
 │   ├── models.py          Athlete, RunLog, VO2XHistory, Strength* (frozen)

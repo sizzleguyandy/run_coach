@@ -657,7 +657,7 @@ def format_dashboard(
     # ── Adaptive race predictor ────────────────────────────────────────────
     if prediction is not None:
         try:
-            from coach_core.engine.paces import format_prediction
+            from tr3d_core.engine.paces import format_prediction
             lines += [
                 "",
                 _sec("ADAPTIVE RACE PREDICTOR"),
@@ -688,7 +688,7 @@ def format_dashboard(
     ]
 
     # ── Rewards ────────────────────────────────────────────────────────────
-    from coach_core.engine.billing import loyalty_progress_bar
+    from tr3d_core.engine.billing import loyalty_progress_bar
     weeks_done = min(streak, 4)
     loy_bar    = loyalty_progress_bar(weeks_done)
 

@@ -39,7 +39,7 @@ The existing stack (FastAPI + SQLAlchemy + python-telegram-bot + SQLite) is exte
 | Scheduler | APScheduler (existing) | Strength day reminders, pace-gap VO2X check |
 | n8n | Existing workflows | Strength summary injected into weekly/monthly reports |
 
-All new backend code lives in `coach_core/routers/strength.py` and `coach_core/engine/strength_adaptation.py`.
+All new backend code lives in `tr3d_core/routers/strength.py` and `tr3d_core/engine/strength_adaptation.py`.
 
 ---
 

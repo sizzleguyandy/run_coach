@@ -36,22 +36,22 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from telegram_bot.config import API_BASE_URL
 from telegram_bot.formatting import format_main_menu, main_menu_keyboard, _DIV
-from coach_core.engine.race_presets import (
+from tr3d_core.engine.race_presets import (
     RACE_PRESETS, preset_keyboard_rows, find_preset_by_label, get_next_race_date,
 )
-from coach_core.engine.race_presets_sa import (
+from tr3d_core.engine.race_presets_sa import (
     RACE_PRESETS_SA, RACE_COORDS_SA, get_next_race_date_sa,
 )
-from coach_core.engine.race_presets_uk import (
+from tr3d_core.engine.race_presets_uk import (
     RACE_PRESETS_UK, RACE_COORDS_UK, get_next_race_date_uk,
 )
-from coach_core.engine.sa_cities import city_keyboard_rows, find_city
-from coach_core.engine.predictor import (
+from tr3d_core.engine.sa_cities import city_keyboard_rows, find_city
+from tr3d_core.engine.predictor import (
     predict, PredictionInput,
     PRESET_HILL_FACTORS, HILL_PROFILES, PLAN_TYPE_TO_PROFILE,
     BEGINNER_5K_TIMES, fmt_time, km_to_race_distance,
 )
-from coach_core.engine.adaptation import calculate_vo2x_from_race
+from tr3d_core.engine.adaptation import calculate_vo2x_from_race
 
 # ── Conversation states ────────────────────────────────────────────────────
 (

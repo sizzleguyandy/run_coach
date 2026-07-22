@@ -149,7 +149,7 @@ async def _build_payload(telegram_id: str, question: str) -> dict:
             vo2x = athlete.get("vo2x")
             if vo2x:
                 try:
-                    from coach_core.engine.paces import calculate_paces, format_pace
+                    from tr3d_core.engine.paces import calculate_paces, format_pace
                     p = calculate_paces(vo2x)
                     payload["vo2x"]           = vo2x
                     payload["easy_pace"]      = format_pace(p.easy_min_per_km)
@@ -163,7 +163,7 @@ async def _build_payload(telegram_id: str, question: str) -> dict:
             preset_race_id = athlete.get("preset_race_id")
             if preset_race_id or vo2x:
                 try:
-                    from coach_core.engine.race_knowledge import get_race_context
+                    from tr3d_core.engine.race_knowledge import get_race_context
                     race_ctx = get_race_context(
                         preset_race_id=preset_race_id,
                         vo2x=vo2x,
@@ -194,8 +194,8 @@ async def _build_payload(telegram_id: str, question: str) -> dict:
             # ── Precomputed taper fields (prevents AI drift on taper questions) ──
             try:
                 from datetime import date, timedelta
-                from coach_core.engine.phases import get_phases
-                from coach_core.engine.volume import get_taper_weeks
+                from tr3d_core.engine.phases import get_phases
+                from tr3d_core.engine.volume import get_taper_weeks
 
                 if not total:
                     raise ValueError("total_weeks missing from plan response")

@@ -269,7 +269,7 @@ async def _fetch_coached_message(
         return ""
 
     from telegram_bot.formatting import PHASE_NAMES
-    from coach_core.engine.paces import calculate_paces, format_pace
+    from tr3d_core.engine.paces import calculate_paces, format_pace
 
     days       = week.get("days", {})
     session    = days.get(today_key, {})
@@ -339,7 +339,7 @@ async def show_today(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: b
     paces_dict = None
     if athlete and week.get("plan_type") != "c25k":
         try:
-            from coach_core.engine.paces import calculate_paces, format_pace
+            from tr3d_core.engine.paces import calculate_paces, format_pace
             _vo2x = athlete.get("vo2x", 40)
             _p = calculate_paces(_vo2x)
             paces_dict = {
@@ -486,9 +486,9 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
     prediction = None
     try:
         from datetime import date as _date
-        from coach_core.engine.predictor import predict, PredictionInput, PRESET_HILL_FACTORS
-        from coach_core.engine.race_presets import RACE_PRESETS
-        from coach_core.engine.paces import (
+        from tr3d_core.engine.predictor import predict, PredictionInput, PRESET_HILL_FACTORS
+        from tr3d_core.engine.race_presets import RACE_PRESETS
+        from tr3d_core.engine.paces import (
             RacePrediction, _comrades_direction, _comrades_medal
         )
 
@@ -688,7 +688,7 @@ async def show_calendar_ics(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     paces_dict = None
     if week.get("plan_type") != "c25k":
         try:
-            from coach_core.engine.paces import calculate_paces, format_pace
+            from tr3d_core.engine.paces import calculate_paces, format_pace
             _p = calculate_paces(athlete.get("vo2x", 40))
             paces_dict = {
                 "easy":       format_pace(_p.easy_min_per_km),

@@ -61,7 +61,7 @@ async def compute_vo2x_from_race(
     time_minutes: float = Query(..., description="Finish time in minutes"),
 ):
     """Convert a race result to a Daniels VO2X score."""
-    from coach_core.engine.adaptation import calculate_vo2x_from_race
+    from tr3d_core.engine.adaptation import calculate_vo2x_from_race
     vo2x = calculate_vo2x_from_race(distance_km, time_minutes)
     return {"vo2x": round(vo2x, 1)}
 
@@ -78,8 +78,8 @@ async def get_athlete_by_link_code(code: str, request: Request):
     Rate-limited per client IP to prevent code enumeration.
     """
     from sqlalchemy import select
-    from coach_core.database import get_db
-    from coach_core.models import Athlete
+    from tr3d_core.database import get_db
+    from tr3d_core.models import Athlete
 
     client_ip = request.client.host if request.client else "unknown"
     _check_rate_limit(client_ip)
@@ -156,7 +156,7 @@ async def _build_payload(athlete_id: str, question: str) -> dict:
             vo2x = athlete.get("vo2x")
             if vo2x:
                 try:
-                    from coach_core.engine.paces import calculate_paces, format_pace
+                    from tr3d_core.engine.paces import calculate_paces, format_pace
                     p = calculate_paces(vo2x)
                     payload["vo2x"]           = vo2x
                     payload["easy_pace"]      = format_pace(p.easy_min_per_km)
@@ -169,7 +169,7 @@ async def _build_payload(athlete_id: str, question: str) -> dict:
             preset_race_id = athlete.get("preset_race_id")
             if preset_race_id or vo2x:
                 try:
-                    from coach_core.engine.race_knowledge import get_race_context
+                    from tr3d_core.engine.race_knowledge import get_race_context
                     race_ctx = get_race_context(
                         preset_race_id=preset_race_id,
                         vo2x=vo2x,
@@ -198,8 +198,8 @@ async def _build_payload(athlete_id: str, question: str) -> dict:
 
             try:
                 from datetime import timedelta
-                from coach_core.engine.phases import get_phases
-                from coach_core.engine.volume import get_taper_weeks
+                from tr3d_core.engine.phases import get_phases
+                from tr3d_core.engine.volume import get_taper_weeks
 
                 if total:
                     race_dist         = athlete.get("race_distance", "marathon") if athlete else "marathon"

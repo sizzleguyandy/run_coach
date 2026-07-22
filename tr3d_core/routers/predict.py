@@ -9,11 +9,11 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import date
 
-from coach_core.engine.predictor import (
+from tr3d_core.engine.predictor import (
     predict, PredictionInput,
     PRESET_HILL_FACTORS, HILL_PROFILES,
 )
-from coach_core.engine.race_presets import RACE_PRESETS
+from tr3d_core.engine.race_presets import RACE_PRESETS
 
 router = APIRouter(prefix="/predict", tags=["predict"])
 
@@ -36,8 +36,8 @@ async def list_races(
     ),
 ):
     """Return race presets for the onboarding race picker. Optionally filter by country."""
-    from coach_core.engine.race_presets_sa import RACE_PRESETS_SA as SA_PRESETS
-    from coach_core.engine.race_presets_uk import RACE_PRESETS_UK as UK_PRESETS
+    from tr3d_core.engine.race_presets_sa import RACE_PRESETS_SA as SA_PRESETS
+    from tr3d_core.engine.race_presets_uk import RACE_PRESETS_UK as UK_PRESETS
 
     # Build a combined map with country tag
     all_presets: dict = {}

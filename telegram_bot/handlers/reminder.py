@@ -226,7 +226,7 @@ def _build_sunday_game_message(
     km_str = f" · {actual_km:.0f}km logged" if actual_km > 0 else ""
 
     # Loyalty progress line
-    from coach_core.engine.billing import calculate_loyalty_discount, loyalty_progress_bar
+    from tr3d_core.engine.billing import calculate_loyalty_discount, loyalty_progress_bar
     streak  = athlete.get("streak_weeks", 0) or 0
     loyalty = calculate_loyalty_discount(streak)
     l_bar   = loyalty_progress_bar(loyalty["weeks"])
@@ -342,7 +342,7 @@ def _build_race_prep_message(
     race_tips = ""
     checkpoint_text = ""
     try:
-        from coach_core.engine.race_knowledge import get_race_context
+        from tr3d_core.engine.race_knowledge import get_race_context
         ctx = get_race_context(
             preset_race_id=preset_race_id,
             vo2x=vo2x,
@@ -901,7 +901,7 @@ async def _fetch_race_day_weather(
         wind_label = "strong wind" if wind_kph > 25 else ("moderate wind" if wind_kph > 15 else "light wind")
         condition  = f"{heat_label}, {humid_label}, {wind_label}"
 
-        from coach_core.engine.truepace import compute_adjustment
+        from tr3d_core.engine.truepace import compute_adjustment
         adj = compute_adjustment(temp, dew)
 
         return {
@@ -970,10 +970,10 @@ async def _send_race_eve_reports(bot, athletes: list[dict]) -> None:
             # ── Race prediction ───────────────────────────────────────────
             predicted_low = predicted_high = None
             try:
-                from coach_core.engine.predictor import (
+                from tr3d_core.engine.predictor import (
                     predict, PredictionInput, PRESET_HILL_FACTORS,
                 )
-                from coach_core.engine.race_presets import RACE_PRESETS
+                from tr3d_core.engine.race_presets import RACE_PRESETS
                 preset_id   = athlete.get("preset_race_id")
                 race_dist_str = athlete.get("race_distance", "marathon")
                 hilliness   = athlete.get("race_hilliness", "low")
@@ -1014,7 +1014,7 @@ async def _send_race_eve_reports(bot, athletes: list[dict]) -> None:
             # ── Race-day weather ──────────────────────────────────────────
             weather = None
             try:
-                from coach_core.engine.race_presets import RACE_COORDS
+                from tr3d_core.engine.race_presets import RACE_COORDS
                 preset_id = athlete.get("preset_race_id")
                 if preset_id and preset_id in RACE_COORDS:
                     lat, lon = RACE_COORDS[preset_id]
@@ -1031,7 +1031,7 @@ async def _send_race_eve_reports(bot, athletes: list[dict]) -> None:
             # ── Race knowledge (RAG) ──────────────────────────────────────
             knowledge_text = checkpoint_summary = ""
             try:
-                from coach_core.engine.race_knowledge import get_race_context
+                from tr3d_core.engine.race_knowledge import get_race_context
                 ctx = get_race_context(
                     preset_race_id = athlete.get("preset_race_id"),
                     vo2x           = athlete.get("vo2x"),
@@ -1379,8 +1379,8 @@ async def cmd_racereport(update, context) -> None:
         predicted_low = predicted_high = None
         dist_km = 42.195
         try:
-            from coach_core.engine.predictor import predict, PredictionInput, PRESET_HILL_FACTORS
-            from coach_core.engine.race_presets import RACE_PRESETS
+            from tr3d_core.engine.predictor import predict, PredictionInput, PRESET_HILL_FACTORS
+            from tr3d_core.engine.race_presets import RACE_PRESETS
             preset_id     = athlete.get("preset_race_id")
             race_dist_str = athlete.get("race_distance", "marathon")
             hilliness     = athlete.get("race_hilliness", "low")
@@ -1413,7 +1413,7 @@ async def cmd_racereport(update, context) -> None:
         # Weather — use race coords if available, else athlete location
         weather = None
         try:
-            from coach_core.engine.race_presets import RACE_COORDS
+            from tr3d_core.engine.race_presets import RACE_COORDS
             preset_id = athlete.get("preset_race_id")
             if preset_id and preset_id in RACE_COORDS:
                 lat, lon = RACE_COORDS[preset_id]
@@ -1429,7 +1429,7 @@ async def cmd_racereport(update, context) -> None:
         # Race knowledge
         knowledge_text = checkpoint_summary = ""
         try:
-            from coach_core.engine.race_knowledge import get_race_context
+            from tr3d_core.engine.race_knowledge import get_race_context
             ctx = get_race_context(
                 preset_race_id=athlete.get("preset_race_id"),
                 vo2x=athlete.get("vo2x"),

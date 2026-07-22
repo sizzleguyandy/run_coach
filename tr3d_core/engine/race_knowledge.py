@@ -5,7 +5,7 @@ Loads race-specific knowledge documents and generates personalised
 checkpoint/split guidance based on the athlete's VO2X.
 
 Usage:
-    from coach_core.engine.race_knowledge import get_race_context
+    from tr3d_core.engine.race_knowledge import get_race_context
 
     context = get_race_context(
         preset_race_id="comrades",

@@ -41,7 +41,7 @@ async def cmd_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
       /location <lat> <lon> [hour]   → manual coordinates
       (Telegram location share)      → use GPS coordinates
     """
-    from coach_core.engine.sa_cities import find_city, city_keyboard_rows
+    from tr3d_core.engine.sa_cities import find_city, city_keyboard_rows
 
     telegram_id = str(update.effective_user.id)
     args = context.args or []
@@ -109,7 +109,7 @@ async def handle_city_selection(update: Update, context: ContextTypes.DEFAULT_TY
     if not context.user_data.get("awaiting_city"):
         return  # not waiting for a city - ignore
 
-    from coach_core.engine.sa_cities import find_city
+    from tr3d_core.engine.sa_cities import find_city
     context.user_data.pop("awaiting_city", None)
     telegram_id = str(update.effective_user.id)
     query = update.message.text.strip()
