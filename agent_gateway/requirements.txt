@@ -1,0 +1,3 @@
+# Agent Gateway — deps beyond what coach_core already requires.
+# Install alongside the root requirements.txt.
+anthropic>=0.116.0

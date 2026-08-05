@@ -54,6 +54,11 @@ migrate_*.py
 *.sql
 *.txt
 
+# Agent Gateway ships a real frontend and a real requirements file —
+# exempt them from the blanket *.html / *.txt rules above.
+!agent_gateway/web/*.html
+!agent_gateway/requirements.txt
+
 # IDE
 .vscode/
 .idea/
