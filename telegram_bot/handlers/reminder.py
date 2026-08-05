@@ -58,12 +58,6 @@ SA_TZ = timezone(timedelta(hours=_TZ_OFFSET))
 # Set N8N_REPORT_COACH_URL in .env to enable weekly + monthly AI feedback reports.
 N8N_REPORT_COACH_URL = os.getenv("N8N_REPORT_COACH_URL", "")
 
-# GitHub Pages base URL — set in .env as MINI_APP_BASE_URL
-MINI_APP_BASE = os.getenv(
-    "MINI_APP_BASE_URL",
-    "https://sizzleguyandy.github.io/run-coach-apps"
-).rstrip("/")
-
 REST_MESSAGES = [
     "Rest day today. Recovery is where adaptation happens — eat well, sleep, stay off your feet.",
     "Rest day. Your muscles are rebuilding. Enjoy the break — you earned it.",
@@ -126,33 +120,6 @@ async def _fetch_week_summary(athlete_ref: str, week_number: int) -> dict:
 
 
 # ── Mini App URL builders ─────────────────────────────────────────────────────
-
-def crossing_url(
-    weeks: int,
-    lives: int,
-    cur_week: int,
-    total_weeks: int,
-    race_name: str,
-) -> str:
-    params = urlencode({
-        "weeks":       max(1, weeks),
-        "lives":       max(1, min(5, lives)),
-        "week":        cur_week,
-        "total_weeks": total_weeks,
-        "race":        race_name,
-    })
-    return f"{MINI_APP_BASE}/crossing.html?{params}"
-
-
-def levelup_url(vo2x_old: float, vo2x_new: float, name: str, source: str) -> str:
-    params = urlencode({
-        "from":   vo2x_old,
-        "to":     vo2x_new,
-        "name":   name,
-        "source": source,
-    })
-    return f"{MINI_APP_BASE}/levelup.html?{params}"
-
 
 # ── Message builders ─────────────────────────────────────────────────────────
 
@@ -257,22 +224,7 @@ def _build_sunday_game_message(
 
     msg = "\n".join(lines)
 
-    url = crossing_url(
-        weeks=roads,
-        lives=lives,
-        cur_week=week_num,
-        total_weeks=total_wks,
-        race_name=athlete.get("race_name") or "Race Day",
-    )
-
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            f"🕹️ Play — {roads} roads · {lives} lives",
-            web_app={"url": url},
-        )
-    ]])
-
-    return msg, keyboard
+    return msg, None
 
 
 # ── VO2X level-up trigger (called from log.py) ────────────────────────────────
@@ -286,13 +238,11 @@ async def send_levelup_notification(
     source: str = "adjusted",
 ) -> None:
     """
-    Send the level-up Mini App button when VO2X crosses an integer boundary.
+    Send the level-up message when VO2X crosses an integer boundary.
     e.g. 39.8 → 40.1 triggers it; 39.1 → 39.8 does not.
     """
     if int(vo2x_new) <= int(vo2x_old):
         return   # no integer boundary crossed — no notification
-
-    url = levelup_url(vo2x_old, vo2x_new, name, source)
 
     source_label = "your race result" if source == "race" else "your training consistency"
     msg = (
@@ -301,19 +251,11 @@ async def send_levelup_notification(
         "Your training paces have been updated."
     )
 
-    keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            f"⚡ VO2X {int(vo2x_old)} → {int(vo2x_new)} — See your upgrade",
-            web_app={"url": url},
-        )
-    ]])
-
     try:
         await bot.send_message(
             chat_id=athlete_ref,
             text=msg,
             parse_mode=ParseMode.HTML,
-            reply_markup=keyboard,
         )
         logger.info(f"Level-up notification sent to {athlete_ref}: {vo2x_old} → {vo2x_new}")
     except Exception as e:

@@ -29,31 +29,6 @@ N8N_TODAY_WEBHOOK = os.getenv("N8N_TODAY_WEBHOOK", "")
 import logging
 _log = logging.getLogger(__name__)
 
-# ── Race logos (GitHub Pages) ──────────────────────────────────────────────
-# Update LOGOS_BASE if the repo or branch ever changes.
-# File extension: change .png → .jpg below if you saved them as JPEGs.
-LOGOS_BASE = "https://sizzleguyandy.github.io/run-coach-apps/logos"
-
-RACE_LOGO_MAP: dict[str, str] = {
-    # SA logos confirmed in GitHub repo
-    "cape_town_marathon":            f"{LOGOS_BASE}/logo_cape_town_marathon.jpg",
-    "two_oceans_marathon":           f"{LOGOS_BASE}/logo_two_oceans.jpg",
-    "comrades_marathon":             f"{LOGOS_BASE}/logo_comrades.jpg",
-    # "soweto_marathon":             f"{LOGOS_BASE}/logo_soweto_marathon.jpg",          # add when uploaded
-    # "durban_international_marathon": f"{LOGOS_BASE}/logo_durban_international.jpg",   # add when uploaded
-    # "knysna_forest_marathon":      f"{LOGOS_BASE}/logo_knysna_forest.jpg",            # add when uploaded
-    # UK logos (add as uploaded)
-    # "london_marathon":             f"{LOGOS_BASE}/logo_london_marathon.jpg",
-    # "manchester_marathon":         f"{LOGOS_BASE}/logo_manchester_marathon.jpg",
-}
-_GENERIC_LOGO = f"{LOGOS_BASE}/logo_generic.jpg"
-
-
-def _race_logo_url(preset_id: str | None) -> str:
-    """Return the logo URL for a race preset, falling back to the generic logo."""
-    if preset_id and preset_id in RACE_LOGO_MAP:
-        return RACE_LOGO_MAP[preset_id]
-    return _GENERIC_LOGO
 
 from telegram_bot.formatting import (
     format_main_menu, format_today, format_week, format_c25k_week,
@@ -116,78 +91,6 @@ async def _fetch_weather(athlete_ref: str, session_type: str = "easy") -> dict:
     except Exception:
         pass
     return {}
-
-
-def _build_session_url(
-    athlete: dict,
-    session: dict,
-    paces_dict: dict,
-    week_number: int = 0,
-    day_name: str = "",
-) -> "str | None":
-    """
-    Build a session.html URL for quality sessions (threshold / interval / rep / hills / strides).
-    Returns None for easy runs, long runs, and rest days — no player needed.
-    Silent fail on any error.
-
-    New params (for auto-log):
-      week_number — current plan week number
-      day_name    — "Mon", "Tue", etc. (today's day key)
-    """
-    try:
-        session_name = session.get("session", "")
-        km           = session.get("km", 0)
-        notes        = session.get("notes", "")
-        if not session_name or km == 0 or not notes:
-            return None
-
-        QUALITY_KEYS = ("Threshold", "Tempo", "Interval", "Repetition", "R-Pace", "Hill", "Stride", "Cruise")
-        if not any(k in session_name for k in QUALITY_KEYS):
-            return None
-
-        from urllib.parse import urlencode
-        MINI_APP_BASE = os.getenv("MINI_APP_BASE_URL", "https://sizzleguyandy.github.io/run-coach-apps").rstrip("/")
-        API_BASE      = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
-
-        # Derive prescribed pace (min/km as float) from the primary effort zone
-        def _pace_str_to_float(s: str) -> float:
-            """Convert 'M:SS' pace string to float min/km."""
-            try:
-                parts = str(s).split(":")
-                return int(parts[0]) + int(parts[1]) / 60
-            except Exception:
-                return 0.0
-
-        name_lower = session_name.lower()
-        if any(k in name_lower for k in ("rep", "stride", "r-pace")):
-            ppace = _pace_str_to_float(paces_dict.get("repetition", ""))
-        elif any(k in name_lower for k in ("interval",)):
-            ppace = _pace_str_to_float(paces_dict.get("interval", ""))
-        elif any(k in name_lower for k in ("threshold", "tempo", "cruise")):
-            ppace = _pace_str_to_float(paces_dict.get("threshold", ""))
-        else:
-            ppace = _pace_str_to_float(paces_dict.get("easy", ""))
-
-        qs = {
-            "name":      athlete.get("name", "Runner"),
-            "session":   session_name,
-            "km":        km,
-            "notes":     notes,
-            "easy":      paces_dict.get("easy", ""),
-            "threshold": paces_dict.get("threshold", ""),
-            "interval":  paces_dict.get("interval", ""),
-            "rep":       paces_dict.get("repetition", ""),
-            # Auto-log params
-            "tid":       athlete.get("athlete_ref", ""),
-            "week":      week_number,
-            "day":       day_name,
-            "dist":      km,
-            "ppace":     round(ppace, 4) if ppace else "",
-            "api":       API_BASE,
-        }
-        return f"{MINI_APP_BASE}/session.html?{urlencode(qs)}"
-    except Exception:
-        return None
 
 
 def _session_type_for_week(week: dict) -> str:
@@ -392,17 +295,7 @@ async def show_today(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: b
         if truepace:
             text = text + "\n\n" + truepace
 
-    # Build session player URL for quality days (silent fail)
-    session_url = None
-    if athlete and paces_dict and week.get("plan_type") != "c25k":
-        today_session = week.get("days", {}).get(today_key, {})
-        session_url = _build_session_url(
-            athlete, today_session, paces_dict,
-            week_number=week.get("week_number", 0),
-            day_name=today_key,
-        )
-
-    keyboard = today_keyboard(logged_today, session_url)
+    keyboard = today_keyboard(logged_today)
     await _send_or_edit(update, text, keyboard, edit)
 
 
@@ -426,49 +319,6 @@ async def show_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bo
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────
-
-async def _send_dashboard_photo(
-    update,
-    photo_url: str,
-    caption: str,
-    keyboard,
-    edit: bool,
-) -> None:
-    """
-    Send (or edit-to) a photo with caption and inline keyboard.
-
-    When edit=True (inline button callback), attempts edit_message_media so
-    the message updates in place. Falls back to sending a new photo, and if
-    that also fails (e.g. photo URL unreachable), falls back to plain text.
-    """
-    from telegram import InputMediaPhoto
-
-    if edit and update.callback_query:
-        try:
-            await update.callback_query.edit_message_media(
-                media=InputMediaPhoto(
-                    media=photo_url,
-                    caption=caption,
-                    parse_mode="HTML",
-                ),
-                reply_markup=keyboard,
-            )
-            return
-        except Exception as e:
-            _log.warning(f"_send_dashboard_photo edit_message_media failed: {e}")
-            # Fall through to send a new photo message below
-
-    try:
-        await update.effective_message.reply_photo(
-            photo=photo_url,
-            caption=caption,
-            reply_markup=keyboard,
-            parse_mode="HTML",
-        )
-    except Exception as e:
-        _log.error(f"_send_dashboard_photo reply_photo failed: {e} — falling back to text")
-        await _send_or_edit(update, caption, keyboard, edit)
-
 
 async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
     athlete_ref = str(update.effective_user.id)
@@ -558,8 +408,7 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
         pass  # never block dashboard on prediction failure
 
     caption = format_dashboard(athlete, week, summary, prediction)
-    logo_url = _race_logo_url(athlete.get("preset_race_id"))
-    await _send_dashboard_photo(update, logo_url, caption, dashboard_keyboard(), edit)
+    await _send_or_edit(update, caption, dashboard_keyboard(), edit)
 
 
 # ── Paces ──────────────────────────────────────────────────────────────────
@@ -699,12 +548,6 @@ async def show_calendar_ics(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         except Exception:
             pass
 
-    # Build a session URL factory for quality sessions
-    def _url_builder(session: dict) -> "str | None":
-        if paces_dict:
-            return _build_session_url(athlete, session, paces_dict)
-        return None
-
     # Generate ICS bytes
     from telegram_bot.ics_generator import generate_week_ics
     try:
@@ -712,7 +555,6 @@ async def show_calendar_ics(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             week       = week,
             athlete    = athlete,
             paces_dict = paces_dict,
-            session_url_builder = _url_builder,
         )
     except Exception as e:
         _log.exception(f"ICS generation failed for {athlete_ref}: {e}")

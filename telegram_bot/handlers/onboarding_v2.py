@@ -322,7 +322,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     # New user — start onboarding
     _clear_v2(context)
-    _TR3D_LOGO = "https://sizzleguyandy.github.io/run-coach-apps/logos/logo_tr3d_v2.jpg"
     _welcome_caption = (
         f"<b>TR3D  ·  ATHLETE PROFILE</b>\n{_DIV}\n\n"
         "Welcome. TR3D calculates a race-specific training plan built around "
@@ -332,19 +331,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "<b>Choose your country to get started.</b>"
     )
     country_rows = [[k] for k in COUNTRY_OPTIONS.keys()]
-    try:
-        await update.effective_message.reply_photo(
-            photo=_TR3D_LOGO,
-            caption=_welcome_caption,
-            reply_markup=ReplyKeyboardMarkup(country_rows, one_time_keyboard=True, resize_keyboard=True),
-            parse_mode="HTML",
-        )
-    except Exception:
-        await update.effective_message.reply_text(
-            _welcome_caption,
-            reply_markup=ReplyKeyboardMarkup(country_rows, one_time_keyboard=True, resize_keyboard=True),
-            parse_mode="HTML",
-        )
+    await update.effective_message.reply_text(
+        _welcome_caption,
+        reply_markup=ReplyKeyboardMarkup(country_rows, one_time_keyboard=True, resize_keyboard=True),
+        parse_mode="HTML",
+    )
     return COUNTRY
 
 

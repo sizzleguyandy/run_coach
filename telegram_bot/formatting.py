@@ -218,12 +218,10 @@ def back_keyboard():
     ]])
 
 
-def today_keyboard(logged: bool = False, session_url: "str | None" = None):
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+def today_keyboard(logged: bool = False):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
     log_label = "✅ Already logged" if logged else "📝 Log this run"
     rows = []
-    if session_url:
-        rows.append([InlineKeyboardButton("▶ Start Session", web_app=WebAppInfo(url=session_url))])
     rows.append([InlineKeyboardButton(log_label, callback_data="log")])
     rows.append([
         InlineKeyboardButton("📅 Full week", callback_data="plan"),
