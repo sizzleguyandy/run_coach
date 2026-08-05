@@ -8,6 +8,7 @@ from typing import Optional
 from coach_core.database import get_db
 from coach_core.models import Athlete, RunLog, VO2XHistory
 from coach_core.engine.adaptation import adapt_next_week, WeekSummary, calculate_vo2x_from_race
+from coach_core.engine import notifications
 from coach_core.engine.plan_builder import build_full_plan, current_week_number
 
 router = APIRouter(prefix="/log", tags=["log"])
@@ -263,19 +264,13 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
 
     await db.commit()
 
-    # ── VO2X level-up Mini App notification ───────────────────────────
+    # ── VO2X level-up event ───────────────────────────────────────────
+    # Emitted as a channel-agnostic domain event; the delivery layer decides
+    # whether that becomes a Telegram message, a push, or nothing.
     if int(new_vo2x) > int(vo2x_before):
-        try:
-            from telegram_bot.handlers.reminder import send_levelup_notification
-            from telegram_bot.config import TELEGRAM_TOKEN
-            from telegram import Bot
-            import asyncio as _aio
-            _aio.create_task(send_levelup_notification(
-                Bot(token=TELEGRAM_TOKEN), telegram_id,
-                athlete.name, vo2x_before, new_vo2x, "adjusted",
-            ))
-        except Exception:
-            pass
+        notifications.vo2x_levelup(
+            telegram_id, athlete.name, vo2x_before, new_vo2x, "adjusted",
+        )
 
     # Append RPE nudge if more than half the week's runs have no RPE logged
     all_notes = list(notes) if isinstance(notes, list) else ([notes] if notes else [])
@@ -411,19 +406,11 @@ async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
     else:
         await db.commit()   # still save the history entry
 
-    # ── VO2X level-up notification ──────────────────────────────────────
-    if vo2x_updated and new_vo2x > old_vo2x and int(new_vo2x) > int(old_vo2x):
-        try:
-            from telegram_bot.handlers.reminder import send_levelup_notification
-            from telegram_bot.config import TELEGRAM_TOKEN
-            from telegram import Bot
-            import asyncio as _aio
-            _aio.create_task(send_levelup_notification(
-                Bot(token=TELEGRAM_TOKEN), data.telegram_id,
-                athlete.name, old_vo2x, new_vo2x, "race",
-            ))
-        except Exception:
-            pass
+    # ── VO2X level-up event ─────────────────────────────────────────────
+    if vo2x_updated and int(new_vo2x) > int(old_vo2x):
+        notifications.vo2x_levelup(
+            data.telegram_id, athlete.name, old_vo2x, new_vo2x, "race",
+        )
 
     return {
         "old_vo2x": old_vo2x,

@@ -25,8 +25,8 @@ _log = logging.getLogger(__name__)
 N8N_CHAT_WEBHOOK = os.getenv("N8N_CHAT_WEBHOOK", "")
 API_BASE_URL     = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/") + "/v1"
 
-# Link codes are generated bot-side (telegram_bot/handlers/mycode.py) using a
-# cryptographically random 8-char body — the lookup below only reads them.
+# Link codes are issued at athlete creation by coach_core/engine/link_codes.py
+# using a cryptographically random 8-char body — the lookup below only reads them.
 
 
 # ── Simple in-memory rate limiter for the code lookup ────────────────────────
