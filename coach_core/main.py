@@ -2,7 +2,8 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from coach_core.database import init_db
+from coach_core.database import init_db, AsyncSessionLocal
+from coach_core.engine.link_codes import backfill_link_codes
 from coach_core.routers import athlete, plan, log, weather, admin, predict
 from coach_core.routers import mobile
 
@@ -15,6 +16,13 @@ from coach_core.routers import mobile
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Athletes created before link codes were universal have none. Idempotent:
+    # a no-op once every athlete has one.
+    try:
+        await backfill_link_codes(AsyncSessionLocal)
+    except Exception as e:  # never block startup over a backfill
+        import logging
+        logging.getLogger(__name__).warning("link code backfill skipped — %s", e)
     yield
 
 

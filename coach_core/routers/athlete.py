@@ -8,6 +8,7 @@ from typing import Optional
 
 from coach_core.database import get_db
 from coach_core.models import Athlete, VO2XHistory, RunLog
+from coach_core.engine.link_codes import assign_link_code
 from coach_core.engine.paces import calculate_paces, format_pace
 
 
@@ -91,6 +92,7 @@ class AthleteResponse(BaseModel):
     streak_weeks: Optional[int] = None
     total_badges: Optional[int] = None
     anchor_runs: Optional[str] = None   # JSON: [{"day":"Tue","km":10.0}, ...]
+    link_code: Optional[str] = None   # shareable identifier for non-Telegram front-ends
     c25k_week: Optional[int]
     c25k_completed: bool
     latitude:  Optional[float]
@@ -129,6 +131,9 @@ async def create_athlete(data: AthleteCreate, db: AsyncSession = Depends(get_db)
         longitude=data.longitude,
     )
     db.add(athlete)
+    # Every athlete gets a link code at creation, so any front-end can identify
+    # them without them first running /mycode in Telegram.
+    await assign_link_code(db, athlete)
     await db.flush()
     db.add(VO2XHistory(
         athlete_id=athlete.id,
@@ -157,6 +162,7 @@ async def create_c25k_athlete(data: AthleteCreateC25K, db: AsyncSession = Depend
         c25k_completed=False,
     )
     db.add(athlete)
+    await assign_link_code(db, athlete)
     await db.commit()
     await db.refresh(athlete)
     return athlete
