@@ -31,8 +31,8 @@ class CoreUnavailable(RuntimeError):
 class CoreClient:
     """Read-only view of one athlete's data in coach_core."""
 
-    def __init__(self, telegram_id: str, base_url: str = CORE_API_BASE_URL):
-        self.telegram_id = telegram_id
+    def __init__(self, athlete_ref: str, base_url: str = CORE_API_BASE_URL):
+        self.athlete_ref = athlete_ref
         self._base = base_url.rstrip("/")
 
     async def _get(self, path: str) -> Optional[Any]:
@@ -63,35 +63,35 @@ class CoreClient:
 
     # ── Athlete ────────────────────────────────────────────────────────────
     async def athlete(self) -> Optional[dict]:
-        return await self._get(f"/athlete/{self.telegram_id}")
+        return await self._get(f"/athlete/{self.athlete_ref}")
 
     async def paces(self) -> Optional[dict]:
-        return await self._get(f"/athlete/{self.telegram_id}/paces")
+        return await self._get(f"/athlete/{self.athlete_ref}/paces")
 
     # ── Plan ───────────────────────────────────────────────────────────────
     async def current_week(self) -> Optional[dict]:
-        return await self._get(f"/plan/{self.telegram_id}/current")
+        return await self._get(f"/plan/{self.athlete_ref}/current")
 
     async def week(self, week_number: int) -> Optional[dict]:
-        return await self._get(f"/plan/{self.telegram_id}/week/{week_number}")
+        return await self._get(f"/plan/{self.athlete_ref}/week/{week_number}")
 
     async def full_plan(self) -> Optional[dict]:
-        return await self._get(f"/plan/{self.telegram_id}")
+        return await self._get(f"/plan/{self.athlete_ref}")
 
     # ── Logs ───────────────────────────────────────────────────────────────
     async def week_log_summary(self, week_number: int) -> Optional[dict]:
         return await self._get(
-            f"/log/{self.telegram_id}/week/{week_number}/summary"
+            f"/log/{self.athlete_ref}/week/{week_number}/summary"
         )
 
     async def month_log_summary(self, year: int, month: int) -> Optional[dict]:
         return await self._get(
-            f"/log/{self.telegram_id}/month/{year}/{month}/summary"
+            f"/log/{self.athlete_ref}/month/{year}/{month}/summary"
         )
 
     # ── Weather ────────────────────────────────────────────────────────────
     async def weather(self) -> Optional[dict]:
-        return await self._get(f"/weather/{self.telegram_id}/conditions")
+        return await self._get(f"/weather/{self.athlete_ref}/conditions")
 
 
 async def resolve_link_code(code: str, base_url: str = CORE_API_BASE_URL) -> Optional[dict]:

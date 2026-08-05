@@ -302,12 +302,12 @@ def _clear_v2(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Entry point for /start. Routes returning users to menu, new users to onboarding."""
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     # Check for existing profile
     try:
         async with httpx.AsyncClient(timeout=6) as client:
-            r = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
+            r = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}")
         if r.status_code == 200:
             athlete = r.json()
             text = format_main_menu(athlete.get("name", ""), athlete.get("plan_type", "full"))
@@ -1203,10 +1203,10 @@ async def _create_c25k_profile(update: Update, context: ContextTypes.DEFAULT_TYP
     import logging as _log
     _logger = _log.getLogger(__name__)
     ud = _ud(context)
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     payload = {
-        "telegram_id": telegram_id,
+        "athlete_ref": athlete_ref,
         "name":        ud.get("v2_name", "Runner"),
         "start_date":  date.today().isoformat(),
     }
@@ -1215,7 +1215,7 @@ async def _create_c25k_profile(update: Update, context: ContextTypes.DEFAULT_TYP
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(f"{API_BASE_URL}/athlete/c25k", json=payload)
             if r.status_code == 409:
-                await client.delete(f"{API_BASE_URL}/athlete/{telegram_id}")
+                await client.delete(f"{API_BASE_URL}/athlete/{athlete_ref}")
                 r = await client.post(f"{API_BASE_URL}/athlete/c25k", json=payload)
             if not r.is_success:
                 raise RuntimeError(f"Server error {r.status_code}: {r.text[:200]}")
@@ -1226,14 +1226,14 @@ async def _create_c25k_profile(update: Update, context: ContextTypes.DEFAULT_TYP
             if lat is not None and lon is not None:
                 try:
                     await client.patch(
-                        f"{API_BASE_URL}/athlete/{telegram_id}/location",
+                        f"{API_BASE_URL}/athlete/{athlete_ref}/location",
                         json={"latitude": lat, "longitude": lon, "run_hour": 6},
                     )
                 except Exception as loc_err:
                     _logger.warning(f"C25K location PATCH failed (non-fatal): {loc_err}")
 
     except Exception as e:
-        _logger.exception(f"_create_c25k_profile failed for {telegram_id}: {e}")
+        _logger.exception(f"_create_c25k_profile failed for {athlete_ref}: {e}")
         await update.effective_message.reply_text(
             "<b>Could not create your profile.</b>\n\n"
             f"<i>{_e(str(e))}</i>\n\n"
@@ -1378,7 +1378,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     _logger = _log.getLogger(__name__)
 
     ud          = _ud(context)
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     try:
         # ── Guard: user_data may be missing if bot restarted ──────────────
@@ -1411,7 +1411,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         race_distance    = ud.get("v2_race_distance", km_to_race_distance(ud["v2_race_distance_km"]))
 
         payload = {
-            "telegram_id":            telegram_id,
+            "athlete_ref":            athlete_ref,
             "name":                   ud.get("v2_name", "Runner"),
             "current_weekly_mileage": max(ud.get("v2_weekly_km", 10), 5.0),
             "vo2x":                   result.vo2x or 35.0,
@@ -1435,7 +1435,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             r = await client.post(f"{API_BASE_URL}/athlete/", json=payload)
             if r.status_code == 409:
                 # Profile already exists — delete and recreate
-                await client.delete(f"{API_BASE_URL}/athlete/{telegram_id}")
+                await client.delete(f"{API_BASE_URL}/athlete/{athlete_ref}")
                 r = await client.post(f"{API_BASE_URL}/athlete/", json=payload)
             if not r.is_success:
                 _logger.error(f"v2_confirm POST failed {r.status_code}: {r.text}")
@@ -1447,7 +1447,7 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             if lat is not None and lon is not None:
                 try:
                     await client.patch(
-                        f"{API_BASE_URL}/athlete/{telegram_id}/location",
+                        f"{API_BASE_URL}/athlete/{athlete_ref}/location",
                         json={"latitude": lat, "longitude": lon, "run_hour": 6},
                     )
                 except Exception as loc_err:
@@ -1458,14 +1458,14 @@ async def v2_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             if anchors:
                 try:
                     await client.patch(
-                        f"{API_BASE_URL}/athlete/{telegram_id}/anchors",
+                        f"{API_BASE_URL}/athlete/{athlete_ref}/anchors",
                         json={"anchors": anchors},
                     )
                 except Exception as anc_err:
                     _logger.warning(f"Anchor PATCH failed (non-fatal): {anc_err}")
 
     except Exception as e:
-        _logger.exception(f"v2_confirm_callback failed for {telegram_id}: {e}")
+        _logger.exception(f"v2_confirm_callback failed for {athlete_ref}: {e}")
         await update.effective_message.reply_text(
             f"<b>Could not create your profile.</b>\n\n"
             f"<i>{_e(str(e))}</i>\n\n"
@@ -1512,10 +1512,10 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Delete athlete profile and restart onboarding."""
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     try:
         async with httpx.AsyncClient(timeout=8) as client:
-            await client.delete(f"{API_BASE_URL}/athlete/{telegram_id}")
+            await client.delete(f"{API_BASE_URL}/athlete/{athlete_ref}")
     except Exception:
         pass
     _clear_v2(context)

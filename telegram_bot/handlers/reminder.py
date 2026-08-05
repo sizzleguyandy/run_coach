@@ -103,10 +103,10 @@ async def _fetch_all_athletes() -> list[dict]:
     return []
 
 
-async def _fetch_today_plan(telegram_id: str) -> dict | None:
+async def _fetch_today_plan(athlete_ref: str) -> dict | None:
     async with httpx.AsyncClient(timeout=10) as client:
         try:
-            r = await client.get(f"{API_BASE_URL}/plan/{telegram_id}/current")
+            r = await client.get(f"{API_BASE_URL}/plan/{athlete_ref}/current")
             if r.status_code == 200:
                 return r.json()
         except Exception:
@@ -114,10 +114,10 @@ async def _fetch_today_plan(telegram_id: str) -> dict | None:
     return None
 
 
-async def _fetch_week_summary(telegram_id: str, week_number: int) -> dict:
+async def _fetch_week_summary(athlete_ref: str, week_number: int) -> dict:
     async with httpx.AsyncClient(timeout=10) as client:
         try:
-            r = await client.get(f"{API_BASE_URL}/log/{telegram_id}/week/{week_number}/summary")
+            r = await client.get(f"{API_BASE_URL}/log/{athlete_ref}/week/{week_number}/summary")
             if r.status_code == 200:
                 return r.json()
         except Exception:
@@ -279,7 +279,7 @@ def _build_sunday_game_message(
 
 async def send_levelup_notification(
     bot: Bot,
-    telegram_id: str,
+    athlete_ref: str,
     name: str,
     vo2x_old: float,
     vo2x_new: float,
@@ -310,14 +310,14 @@ async def send_levelup_notification(
 
     try:
         await bot.send_message(
-            chat_id=telegram_id,
+            chat_id=athlete_ref,
             text=msg,
             parse_mode=ParseMode.HTML,
             reply_markup=keyboard,
         )
-        logger.info(f"Level-up notification sent to {telegram_id}: {vo2x_old} → {vo2x_new}")
+        logger.info(f"Level-up notification sent to {athlete_ref}: {vo2x_old} → {vo2x_new}")
     except Exception as e:
-        logger.warning(f"Level-up notification failed for {telegram_id}: {e}")
+        logger.warning(f"Level-up notification failed for {athlete_ref}: {e}")
 
 
 # ── Race Prep message builder ─────────────────────────────────────────────────
@@ -547,7 +547,7 @@ async def _send_race_prep_if_due(
             continue
 
         # We have a match — build and send the message
-        tid = athlete.get("telegram_id")
+        tid = athlete.get("athlete_ref")
         vo2x = athlete.get("vo2x")
         preset_race_id = athlete.get("preset_race_id")
 
@@ -637,7 +637,7 @@ async def _send_weekly_reports(bot: Bot, athletes: list[dict]) -> None:
     sent = failed = 0
 
     for athlete in athletes:
-        tid = athlete.get("telegram_id")
+        tid = athlete.get("athlete_ref")
         if not tid:
             continue
         try:
@@ -727,7 +727,7 @@ async def _send_monthly_reports(bot: Bot, athletes: list[dict]) -> None:
     sent = failed = 0
 
     for athlete in athletes:
-        tid = athlete.get("telegram_id")
+        tid = athlete.get("athlete_ref")
         if not tid:
             continue
         try:
@@ -942,7 +942,7 @@ async def _send_race_eve_reports(bot, athletes: list[dict]) -> None:
         except Exception:
             continue
 
-        tid = athlete.get("telegram_id")
+        tid = athlete.get("athlete_ref")
         if not tid:
             continue
 
@@ -1129,13 +1129,13 @@ async def cmd_weekreport(update, context) -> None:
     Not listed in set_bot_commands — for testing only.
     """
     from datetime import date
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     msg = await update.effective_message.reply_text("⏳ Generating weekly report…")
 
     try:
         async with httpx.AsyncClient(timeout=12) as client:
-            ath_r  = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
-            week_r = await client.get(f"{API_BASE_URL}/plan/{telegram_id}/current")
+            ath_r  = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}")
+            week_r = await client.get(f"{API_BASE_URL}/plan/{athlete_ref}/current")
 
         if ath_r.status_code != 200:
             await msg.edit_text("❌ No athlete profile found. Complete onboarding first.")
@@ -1149,7 +1149,7 @@ async def cmd_weekreport(update, context) -> None:
         week_num = week.get("week_number", 1)
 
         async with httpx.AsyncClient(timeout=10) as client:
-            sum_r   = await client.get(f"{API_BASE_URL}/log/{telegram_id}/week/{week_num}/summary")
+            sum_r   = await client.get(f"{API_BASE_URL}/log/{athlete_ref}/week/{week_num}/summary")
             summary = sum_r.json() if sum_r.status_code == 200 else {}
 
         actual_km        = summary.get("actual_volume_km", 0.0)
@@ -1209,7 +1209,7 @@ async def cmd_weekreport(update, context) -> None:
         )
 
     except Exception as e:
-        logger.exception(f"cmd_weekreport failed for {telegram_id}: {e}")
+        logger.exception(f"cmd_weekreport failed for {athlete_ref}: {e}")
         await msg.edit_text(f"❌ Error generating report: <code>{_esc(e)}</code>", parse_mode="HTML")
 
 
@@ -1220,13 +1220,13 @@ async def cmd_monthreport(update, context) -> None:
     Not listed in set_bot_commands — for testing only.
     """
     from datetime import date
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     msg = await update.effective_message.reply_text("⏳ Generating monthly report…")
 
     try:
         async with httpx.AsyncClient(timeout=12) as client:
-            ath_r  = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
-            week_r = await client.get(f"{API_BASE_URL}/plan/{telegram_id}/current")
+            ath_r  = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}")
+            week_r = await client.get(f"{API_BASE_URL}/plan/{athlete_ref}/current")
 
         if ath_r.status_code != 200:
             await msg.edit_text("❌ No athlete profile found. Complete onboarding first.")
@@ -1249,7 +1249,7 @@ async def cmd_monthreport(update, context) -> None:
             for wn in range(week_num - weeks_to_fetch + 1, week_num + 1):
                 if wn < 1:
                     continue
-                r = await client.get(f"{API_BASE_URL}/log/{telegram_id}/week/{wn}/summary")
+                r = await client.get(f"{API_BASE_URL}/log/{athlete_ref}/week/{wn}/summary")
                 if r.status_code == 200:
                     s = r.json()
                     if s.get("sessions_logged", 0) > 0:
@@ -1329,7 +1329,7 @@ async def cmd_monthreport(update, context) -> None:
         )
 
     except Exception as e:
-        logger.exception(f"cmd_monthreport failed for {telegram_id}: {e}")
+        logger.exception(f"cmd_monthreport failed for {athlete_ref}: {e}")
         await msg.edit_text(f"❌ Error generating report: <code>{_esc(e)}</code>", parse_mode="HTML")
 
 
@@ -1341,13 +1341,13 @@ async def cmd_racereport(update, context) -> None:
     Not listed in set_bot_commands — for testing only.
     """
     from datetime import date
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     msg = await update.effective_message.reply_text("⏳ Generating race eve briefing…")
 
     try:
         async with httpx.AsyncClient(timeout=12) as client:
-            ath_r  = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
-            week_r = await client.get(f"{API_BASE_URL}/plan/{telegram_id}/current")
+            ath_r  = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}")
+            week_r = await client.get(f"{API_BASE_URL}/plan/{athlete_ref}/current")
 
         if ath_r.status_code != 200:
             await msg.edit_text("❌ No athlete profile found. Complete onboarding first.")
@@ -1369,7 +1369,7 @@ async def cmd_racereport(update, context) -> None:
             for wn in range(week_num - weeks_to_fetch + 1, week_num + 1):
                 if wn < 1:
                     continue
-                r = await client.get(f"{API_BASE_URL}/log/{telegram_id}/week/{wn}/summary")
+                r = await client.get(f"{API_BASE_URL}/log/{athlete_ref}/week/{wn}/summary")
                 if r.status_code == 200:
                     s = r.json()
                     if s.get("sessions_logged", 0) > 0:
@@ -1508,7 +1508,7 @@ async def cmd_racereport(update, context) -> None:
         )
 
     except Exception as e:
-        logger.exception(f"cmd_racereport failed for {telegram_id}: {e}")
+        logger.exception(f"cmd_racereport failed for {athlete_ref}: {e}")
         await msg.edit_text(f"❌ Error generating report: <code>{_esc(e)}</code>", parse_mode="HTML")
 
 
@@ -1527,7 +1527,7 @@ async def _send_strength_reminders(
     """
     sent = nudged = 0
     for athlete in athletes:
-        tid = athlete.get("telegram_id")
+        tid = athlete.get("athlete_ref")
         if not tid:
             continue
 
@@ -1582,7 +1582,7 @@ async def _run_vo2x_pace_gap_check(bot: Bot, athletes: list[dict]) -> None:
     # Original logic preserved below for re-enablement:
     adjusted = skipped = 0
     for athlete in athletes:
-        tid = athlete.get("telegram_id")
+        tid = athlete.get("athlete_ref")
         if not tid or athlete.get("plan_type") != "full":
             skipped += 1
             continue
@@ -1641,7 +1641,7 @@ async def send_daily_reminders(bot: Bot) -> None:
         logger.info(f"Sunday game blast — {len(athletes)} athletes")
 
         for athlete in athletes:
-            tid = athlete.get("telegram_id")
+            tid = athlete.get("athlete_ref")
             if not tid:
                 continue
             try:
@@ -1716,7 +1716,7 @@ async def send_daily_reminders(bot: Bot) -> None:
     # Also catches race_morning at hour 5 (outside the eligible filter below)
     prep_sent = prep_failed = 0
     for athlete in athletes:
-        tid = athlete.get("telegram_id")
+        tid = athlete.get("athlete_ref")
         if not tid:
             continue
         try:
@@ -1741,7 +1741,7 @@ async def send_daily_reminders(bot: Bot) -> None:
     logger.info(f"Sending reminders to {len(eligible)} athletes")
 
     for athlete in eligible:
-        tid = athlete.get("telegram_id")
+        tid = athlete.get("athlete_ref")
         if not tid:
             continue
         try:

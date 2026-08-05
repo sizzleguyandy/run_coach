@@ -15,7 +15,7 @@ router = APIRouter(prefix="/log", tags=["log"])
 
 
 class RunLogCreate(BaseModel):
-    telegram_id: str
+    athlete_ref: str
     week_number: int
     day_name: str
     planned_distance_km: Optional[float] = None
@@ -29,7 +29,7 @@ class RunLogCreate(BaseModel):
 
 
 class RaceResult(BaseModel):
-    telegram_id: str
+    athlete_ref: str
     race_distance_km: float
     finish_time_minutes: float
     race_date: date
@@ -38,7 +38,7 @@ class RaceResult(BaseModel):
 
 @router.post("/run", status_code=201)
 async def log_run(data: RunLogCreate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == data.telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == data.athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -61,9 +61,9 @@ async def log_run(data: RunLogCreate, db: AsyncSession = Depends(get_db)):
     return {"status": "logged", "log_id": log.id}
 
 
-@router.get("/{telegram_id}/week/{week_number}/summary")
-async def get_week_summary(telegram_id: str, week_number: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+@router.get("/{athlete_ref}/week/{week_number}/summary")
+async def get_week_summary(athlete_ref: str, week_number: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -98,8 +98,8 @@ async def get_week_summary(telegram_id: str, week_number: int, db: AsyncSession 
     }
 
 
-@router.get("/{telegram_id}/month/{year}/{month}/summary")
-async def get_month_summary(telegram_id: str, year: int, month: int, db: AsyncSession = Depends(get_db)):
+@router.get("/{athlete_ref}/month/{year}/{month}/summary")
+async def get_month_summary(athlete_ref: str, year: int, month: int, db: AsyncSession = Depends(get_db)):
     """
     Return total running volume and session count for a calendar month.
     Sums all RunLog entries whose logged date falls within year/month.
@@ -110,7 +110,7 @@ async def get_month_summary(telegram_id: str, year: int, month: int, db: AsyncSe
     if not (1 <= month <= 12):
         raise HTTPException(status_code=400, detail="month must be 1-12.")
 
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -173,13 +173,13 @@ async def get_month_summary(telegram_id: str, year: int, month: int, db: AsyncSe
     }
 
 
-@router.post("/{telegram_id}/adapt")
-async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSession = Depends(get_db)):
+@router.post("/{athlete_ref}/adapt")
+async def run_weekly_adaptation(athlete_ref: str, week_number: int, db: AsyncSession = Depends(get_db)):
     """
     Trigger closed-loop adaptation after completing a week.
     Returns adjusted volume + VO2X for next week, and saves updated VO2X if changed.
     """
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -269,7 +269,7 @@ async def run_weekly_adaptation(telegram_id: str, week_number: int, db: AsyncSes
     # whether that becomes a Telegram message, a push, or nothing.
     if int(new_vo2x) > int(vo2x_before):
         notifications.vo2x_levelup(
-            telegram_id, athlete.name, vo2x_before, new_vo2x, "adjusted",
+            athlete_ref, athlete.name, vo2x_before, new_vo2x, "adjusted",
         )
 
     # Append RPE nudge if more than half the week's runs have no RPE logged
@@ -313,7 +313,7 @@ async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
     Intended for confirmed poor performances (illness, wrong distance, etc.).
     All results are stored in VO2XHistory regardless of whether they update the live VO2X.
     """
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == data.telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == data.athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -409,7 +409,7 @@ async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
     # ── VO2X level-up event ─────────────────────────────────────────────
     if vo2x_updated and int(new_vo2x) > int(old_vo2x):
         notifications.vo2x_levelup(
-            data.telegram_id, athlete.name, old_vo2x, new_vo2x, "race",
+            data.athlete_ref, athlete.name, old_vo2x, new_vo2x, "race",
         )
 
     return {
@@ -425,19 +425,19 @@ async def log_race_result(data: RaceResult, db: AsyncSession = Depends(get_db)):
 # ── C25K endpoints ─────────────────────────────────────────────────────────
 
 class C25KTimeTrial(BaseModel):
-    telegram_id: str
+    athlete_ref: str
     finish_time_minutes: float   # 5k time trial result
     week_run_km: Optional[float] = None  # avg km per 30-min session in last week
 
 
-@router.post("/{telegram_id}/c25k/adapt")
-async def adapt_c25k(telegram_id: str, week_number: int, db: AsyncSession = Depends(get_db)):
+@router.post("/{athlete_ref}/c25k/adapt")
+async def adapt_c25k(athlete_ref: str, week_number: int, db: AsyncSession = Depends(get_db)):
     """
     C25K weekly adaptation.
     Computes total run minutes logged vs planned, then advances/repeats/drops back.
     Updates athlete.c25k_week in the database.
     """
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -488,7 +488,7 @@ async def log_c25k_timetrial(data: C25KTimeTrial, db: AsyncSession = Depends(get
     Log a 5k time trial result at end of C25K.
     Computes VO2X, updates athlete record, and returns transition data.
     """
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == data.telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == data.athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")

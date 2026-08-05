@@ -35,24 +35,24 @@ _DIV = "────────────────────────
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-async def _fetch_plan(telegram_id: str) -> dict:
+async def _fetch_plan(athlete_ref: str) -> dict:
     async with httpx.AsyncClient(timeout=10) as c:
-        r = await c.get(f"{API_BASE_URL}/plan/{telegram_id}/current")
+        r = await c.get(f"{API_BASE_URL}/plan/{athlete_ref}/current")
         return r.json() if r.status_code == 200 else {}
 
 
-async def _fetch_anchors(telegram_id: str) -> list[dict]:
+async def _fetch_anchors(athlete_ref: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=10) as c:
-        r = await c.get(f"{API_BASE_URL}/athlete/{telegram_id}/anchors")
+        r = await c.get(f"{API_BASE_URL}/athlete/{athlete_ref}/anchors")
         if r.status_code == 200:
             return r.json().get("anchors", [])
     return []
 
 
-async def _save_anchors(telegram_id: str, anchors: list[dict]) -> bool:
+async def _save_anchors(athlete_ref: str, anchors: list[dict]) -> bool:
     async with httpx.AsyncClient(timeout=10) as c:
         r = await c.patch(
-            f"{API_BASE_URL}/athlete/{telegram_id}/anchors",
+            f"{API_BASE_URL}/athlete/{athlete_ref}/anchors",
             json={"anchors": anchors},
         )
         return r.status_code == 200
@@ -95,8 +95,8 @@ async def anchor_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> str
     if query:
         await query.answer()
 
-    telegram_id = str(update.effective_user.id)
-    anchors = await _fetch_anchors(telegram_id)
+    athlete_ref = str(update.effective_user.id)
+    anchors = await _fetch_anchors(athlete_ref)
 
     summary = _format_anchor_summary(anchors)
     can_add = len(anchors) < 2
@@ -137,9 +137,9 @@ async def anchor_add_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
 
-    telegram_id = str(update.effective_user.id)
-    week    = await _fetch_plan(telegram_id)
-    anchors = await _fetch_anchors(telegram_id)
+    athlete_ref = str(update.effective_user.id)
+    week    = await _fetch_plan(athlete_ref)
+    anchors = await _fetch_anchors(athlete_ref)
 
     eligible = _eligible_days(week, anchors)
 
@@ -248,7 +248,7 @@ async def _save_anchor_entry(
     km: float,
 ) -> str:
     """Persist the new anchor and confirm."""
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     day = context.user_data.get("anchor_pending_day", "")
     pending = list(context.user_data.get("pending_anchors", []))
 
@@ -257,7 +257,7 @@ async def _save_anchor_entry(
     pending.append({"day": day, "km": km})
     pending.sort(key=lambda a: ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].index(a["day"]))
 
-    ok = await _save_anchors(telegram_id, pending)
+    ok = await _save_anchors(athlete_ref, pending)
 
     summary = _format_anchor_summary(pending)
     can_add_more = len(pending) < 2
@@ -297,8 +297,8 @@ async def anchor_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> st
     query = update.callback_query
     await query.answer()
 
-    telegram_id = str(update.effective_user.id)
-    ok = await _save_anchors(telegram_id, [])
+    athlete_ref = str(update.effective_user.id)
+    ok = await _save_anchors(athlete_ref, [])
 
     text = (
         "✅ All anchor runs removed.\n\n"

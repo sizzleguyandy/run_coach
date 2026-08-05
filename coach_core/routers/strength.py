@@ -6,7 +6,7 @@ Endpoints:
   GET  /strength/templates/{id}        — single template
   POST /strength/log                   — log a completed session + apply intensity block
   GET  /strength/logs                  — athlete's recent strength logs (last 30 days)
-  PATCH /athlete/{telegram_id}/strength — update strength settings on athlete
+  PATCH /athlete/{athlete_ref}/strength — update strength settings on athlete
 """
 
 import json
@@ -43,7 +43,7 @@ _log = logging.getLogger(__name__)
 # ── Pydantic schemas ───────────────────────────────────────────────────────
 
 class StrengthLogCreate(BaseModel):
-    telegram_id: str
+    athlete_ref: str
     log_date: Optional[date] = None          # defaults to today
     template_id: Optional[int] = None
     session_name: str
@@ -62,8 +62,8 @@ class StrengthSettingsUpdate(BaseModel):
 
 # ── Helper ─────────────────────────────────────────────────────────────────
 
-async def _get_athlete(telegram_id: str, db: AsyncSession) -> Athlete:
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+async def _get_athlete(athlete_ref: str, db: AsyncSession) -> Athlete:
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -135,7 +135,7 @@ async def log_strength_session(data: StrengthLogCreate, db: AsyncSession = Depen
 
     Updates athlete.strength_last_volume and athlete.strength_load_expires_at.
     """
-    athlete = await _get_athlete(data.telegram_id, db)
+    athlete = await _get_athlete(data.athlete_ref, db)
 
     session_date = data.log_date or date.today()
     volume = data.total_volume_load or 0.0
@@ -185,14 +185,14 @@ async def log_strength_session(data: StrengthLogCreate, db: AsyncSession = Depen
 
 @router.get("/strength/logs")
 async def get_strength_logs(
-    telegram_id: str = Query(..., description="Athlete telegram ID"),
+    athlete_ref: str = Query(..., description="Athlete reference"),
     days: int = Query(30, description="How many days of history to return (default 30)"),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Returns the athlete's strength logs for the last N days (default 30).
     """
-    athlete = await _get_athlete(telegram_id, db)
+    athlete = await _get_athlete(athlete_ref, db)
 
     since = date.today() - timedelta(days=days)
     result = await db.execute(
@@ -208,7 +208,7 @@ async def get_strength_logs(
     expires_in = block_expires_in_hours(athlete.strength_load_expires_at)
 
     return {
-        "telegram_id":      telegram_id,
+        "athlete_ref":      athlete_ref,
         "running_blocked":  blocked,
         "block_expires_in_hours": expires_in,
         "logs": [
@@ -228,11 +228,11 @@ async def get_strength_logs(
     }
 
 
-# ── PATCH /athlete/{telegram_id}/strength ─────────────────────────────────
+# ── PATCH /athlete/{athlete_ref}/strength ─────────────────────────────────
 
-@router.patch("/athlete/{telegram_id}/strength")
+@router.patch("/athlete/{athlete_ref}/strength")
 async def update_strength_settings(
-    telegram_id: str,
+    athlete_ref: str,
     data: StrengthSettingsUpdate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -242,7 +242,7 @@ async def update_strength_settings(
       strength_level     — beginner | intermediate | advanced
       strength_days      — comma-separated day names e.g. "Tue,Thu"
     """
-    athlete = await _get_athlete(telegram_id, db)
+    athlete = await _get_athlete(athlete_ref, db)
 
     if data.strength_frequency is not None:
         if not (0 <= data.strength_frequency <= 4):
@@ -269,9 +269,9 @@ async def update_strength_settings(
 
 # ── POST /strength/pace-gap-check ─────────────────────────────────────────
 
-@router.post("/strength/{telegram_id}/pace-gap-check")
+@router.post("/strength/{athlete_ref}/pace-gap-check")
 async def run_pace_gap_check(
-    telegram_id: str,
+    athlete_ref: str,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -284,7 +284,7 @@ async def run_pace_gap_check(
       - Cooldown: 14 days after any adjustment
       - Returns triggered=True if VO2X was adjusted (scheduler sends bot message)
     """
-    athlete = await _get_athlete(telegram_id, db)
+    athlete = await _get_athlete(athlete_ref, db)
 
     # Only full-plan athletes have VO2X-based paces
     if athlete.plan_type != "full" or not athlete.vo2x:
@@ -348,7 +348,7 @@ async def run_pace_gap_check(
     await db.commit()
 
     _log.info(
-        f"Pace-gap VO2X drop: {telegram_id} {old_vo2x} → {new_vo2x} "
+        f"Pace-gap VO2X drop: {athlete_ref} {old_vo2x} → {new_vo2x} "
         f"({result['below_pace_count']}/{result['sessions_checked']} sessions below pace)"
     )
 

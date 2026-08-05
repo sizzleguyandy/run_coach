@@ -11,17 +11,17 @@ from coach_core.engine.paces import calculate_paces, format_pace
 router = APIRouter(prefix="/weather", tags=["weather"])
 
 
-async def _get_athlete_or_404(telegram_id: str, db: AsyncSession) -> Athlete:
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+async def _get_athlete_or_404(athlete_ref: str, db: AsyncSession) -> Athlete:
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
     return athlete
 
 
-@router.get("/{telegram_id}/adjustment")
+@router.get("/{athlete_ref}/adjustment")
 async def get_pace_adjustment(
-    telegram_id: str,
+    athlete_ref: str,
     session_type: str = Query(default="easy", description="easy | quality | long"),
     run_hour: Optional[int] = Query(default=None, description="Override preferred run hour (0–23)"),
     db: AsyncSession = Depends(get_db),
@@ -32,7 +32,7 @@ async def get_pace_adjustment(
     If no location is stored, returns unadjusted paces and a prompt to add location.
     C25K athletes get a simplified response (no pace zones).
     """
-    athlete = await _get_athlete_or_404(telegram_id, db)
+    athlete = await _get_athlete_or_404(athlete_ref, db)
 
     # C25K athletes have no VO2X yet
     if athlete.plan_type == "c25k" or not athlete.vo2x:
@@ -82,14 +82,14 @@ async def get_pace_adjustment(
     return block
 
 
-@router.get("/{telegram_id}/conditions")
+@router.get("/{athlete_ref}/conditions")
 async def get_current_conditions(
-    telegram_id: str,
+    athlete_ref: str,
     run_hour: Optional[int] = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """Return raw weather conditions only (no pace calculation)."""
-    athlete = await _get_athlete_or_404(telegram_id, db)
+    athlete = await _get_athlete_or_404(athlete_ref, db)
     if not athlete.latitude or not athlete.longitude:
         raise HTTPException(status_code=400, detail="No location stored.")
 

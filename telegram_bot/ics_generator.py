@@ -145,8 +145,8 @@ def _fmt_datetime_utc(dt: datetime) -> str:
     return dt.strftime("%Y%m%dT%H%M%SZ")
 
 
-def _uid(telegram_id: str, day_date: date) -> str:
-    raw = f"tr3d-{telegram_id}-{day_date.isoformat()}"
+def _uid(athlete_ref: str, day_date: date) -> str:
+    raw = f"tr3d-{athlete_ref}-{day_date.isoformat()}"
     return hashlib.md5(raw.encode()).hexdigest() + "@tr3d.run"
 
 
@@ -221,7 +221,7 @@ def generate_week_ics(
     week : dict
         The week plan from the API (has week_start, days, week_number, phase, …)
     athlete : dict
-        The athlete profile (name, telegram_id, …)
+        The athlete profile (name, athlete_ref, …)
     paces_dict : dict | None
         {"easy": "6:14", "threshold": "5:12", "interval": "4:47", "rep": "4:20"}
     session_url_builder : callable | None
@@ -234,7 +234,7 @@ def generate_week_ics(
     """
     from telegram_bot.formatting import PHASE_NAMES
 
-    telegram_id = str(athlete.get("telegram_id", "unknown"))
+    athlete_ref = str(athlete.get("athlete_ref", "unknown"))
     athlete_name = athlete.get("name", "Runner")
     week_num    = week.get("week_number", 1)
     phase_num   = week.get("phase", 1)
@@ -298,7 +298,7 @@ def generate_week_ics(
             day, session, paces_dict, session_url, phase_name, week_num
         )
 
-        uid = _uid(telegram_id, event_date)
+        uid = _uid(athlete_ref, event_date)
 
         event_lines: list[str] = [
             "BEGIN:VEVENT",

@@ -26,7 +26,7 @@ async def cmd_mycode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     tid = str(update.effective_user.id)
 
     async with AsyncSessionLocal() as db:
-        result  = await db.execute(select(Athlete).where(Athlete.telegram_id == tid))
+        result  = await db.execute(select(Athlete).where(Athlete.athlete_ref == tid))
         athlete = result.scalar_one_or_none()
 
         if not athlete:

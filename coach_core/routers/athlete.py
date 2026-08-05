@@ -35,7 +35,7 @@ def _monday_of_week(d) -> "date":
 # ── Full plan creation ─────────────────────────────────────────────────────
 
 class AthleteCreate(BaseModel):
-    telegram_id: str
+    athlete_ref: str
     name: str
     current_weekly_mileage: float
     vo2x: float
@@ -58,7 +58,7 @@ class AthleteCreate(BaseModel):
 # ── C25K creation ──────────────────────────────────────────────────────────
 
 class AthleteCreateC25K(BaseModel):
-    telegram_id: str
+    athlete_ref: str
     name: str
     start_date: date
 
@@ -77,7 +77,7 @@ class GraduateC25K(BaseModel):
 
 class AthleteResponse(BaseModel):
     id: int
-    telegram_id: str
+    athlete_ref: str
     name: str
     plan_type: str
     current_weekly_mileage: Optional[float]
@@ -107,12 +107,12 @@ class AthleteResponse(BaseModel):
 @router.post("/", response_model=AthleteResponse, status_code=201)
 async def create_athlete(data: AthleteCreate, db: AsyncSession = Depends(get_db)):
     """Create a full (phase-based) athlete profile."""
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == data.telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == data.athlete_ref))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Profile already exists.")
 
     athlete = Athlete(
-        telegram_id=data.telegram_id,
+        athlete_ref=data.athlete_ref,
         name=data.name,
         plan_type="full",
         current_weekly_mileage=data.current_weekly_mileage,
@@ -149,12 +149,12 @@ async def create_athlete(data: AthleteCreate, db: AsyncSession = Depends(get_db)
 @router.post("/c25k", response_model=AthleteResponse, status_code=201)
 async def create_c25k_athlete(data: AthleteCreateC25K, db: AsyncSession = Depends(get_db)):
     """Create a C25K beginner profile. No VO2X or race details required."""
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == data.telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == data.athlete_ref))
     if result.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Profile already exists.")
 
     athlete = Athlete(
-        telegram_id=data.telegram_id,
+        athlete_ref=data.athlete_ref,
         name=data.name,
         plan_type="c25k",
         start_date=data.start_date,
@@ -168,9 +168,9 @@ async def create_c25k_athlete(data: AthleteCreateC25K, db: AsyncSession = Depend
     return athlete
 
 
-@router.post("/{telegram_id}/graduate", response_model=AthleteResponse)
+@router.post("/{athlete_ref}/graduate", response_model=AthleteResponse)
 async def graduate_c25k(
-    telegram_id: str,
+    athlete_ref: str,
     data: GraduateC25K,
     db: AsyncSession = Depends(get_db),
 ):
@@ -178,7 +178,7 @@ async def graduate_c25k(
     Graduate an athlete from C25K to a full plan.
     Updates VO2X, mileage, race details, and flips plan_type to 'full'.
     """
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -215,7 +215,7 @@ async def get_all_athletes(
     athletes = result.scalars().all()
     return [
         {
-            "telegram_id":           a.telegram_id,
+            "athlete_ref":           a.athlete_ref,
             "name":                  a.name,
             "plan_type":             a.plan_type,
             "run_hour":              a.run_hour or 7,
@@ -235,18 +235,18 @@ async def get_all_athletes(
     ]
 
 
-@router.get("/{telegram_id}", response_model=AthleteResponse)
-async def get_athlete(telegram_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+@router.get("/{athlete_ref}", response_model=AthleteResponse)
+async def get_athlete(athlete_ref: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
     return athlete
 
 
-@router.get("/{telegram_id}/paces")
-async def get_paces(telegram_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+@router.get("/{athlete_ref}/paces")
+async def get_paces(athlete_ref: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -264,9 +264,9 @@ async def get_paces(telegram_id: str, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.delete("/{telegram_id}", status_code=204)
-async def delete_athlete(telegram_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+@router.delete("/{athlete_ref}", status_code=204)
+async def delete_athlete(athlete_ref: str, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -296,10 +296,10 @@ class AnchorRunsUpdate(BaseModel):
     anchors: list[dict]
 
 
-@router.get("/{telegram_id}/anchors")
-async def get_anchors(telegram_id: str, db: AsyncSession = Depends(get_db)):
+@router.get("/{athlete_ref}/anchors")
+async def get_anchors(athlete_ref: str, db: AsyncSession = Depends(get_db)):
     """Return the athlete's current anchor runs."""
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -307,14 +307,14 @@ async def get_anchors(telegram_id: str, db: AsyncSession = Depends(get_db)):
     return {"anchors": anchors}
 
 
-@router.patch("/{telegram_id}/anchors")
+@router.patch("/{athlete_ref}/anchors")
 async def update_anchors(
-    telegram_id: str,
+    athlete_ref: str,
     data: AnchorRunsUpdate,
     db: AsyncSession = Depends(get_db),
 ):
     """Set or clear anchor runs. Validates max 2, positive km."""
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -349,14 +349,14 @@ class LocationUpdate(BaseModel):
     run_hour: Optional[int] = 7   # preferred run start hour (0–23)
 
 
-@router.patch("/{telegram_id}/location", response_model=AthleteResponse)
+@router.patch("/{athlete_ref}/location", response_model=AthleteResponse)
 async def update_location(
-    telegram_id: str,
+    athlete_ref: str,
     data: LocationUpdate,
     db: AsyncSession = Depends(get_db),
 ):
     """Store athlete's GPS location and preferred run hour for TRUEPACE."""
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")

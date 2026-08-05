@@ -66,15 +66,15 @@ from telegram_bot.formatting import (
 
 # ── Shared data fetchers ───────────────────────────────────────────────────
 
-async def _fetch_all(telegram_id: str) -> tuple[dict | None, dict | None, dict | None]:
+async def _fetch_all(athlete_ref: str) -> tuple[dict | None, dict | None, dict | None]:
     """
     Fetch athlete, current week plan, and week log summary in parallel.
     Returns (athlete, week, summary) — any may be None on error.
     """
     async with httpx.AsyncClient(timeout=12) as client:
         results = await asyncio.gather(
-            client.get(f"{API_BASE_URL}/athlete/{telegram_id}"),
-            client.get(f"{API_BASE_URL}/plan/{telegram_id}/current"),
+            client.get(f"{API_BASE_URL}/athlete/{athlete_ref}"),
+            client.get(f"{API_BASE_URL}/plan/{athlete_ref}/current"),
             return_exceptions=True,
         )
 
@@ -93,7 +93,7 @@ async def _fetch_all(telegram_id: str) -> tuple[dict | None, dict | None, dict |
         try:
             async with httpx.AsyncClient(timeout=8) as client:
                 sr = await client.get(
-                    f"{API_BASE_URL}/log/{telegram_id}/week/{week_num}/summary"
+                    f"{API_BASE_URL}/log/{athlete_ref}/week/{week_num}/summary"
                 )
                 if sr.status_code == 200:
                     summary = sr.json()
@@ -103,12 +103,12 @@ async def _fetch_all(telegram_id: str) -> tuple[dict | None, dict | None, dict |
     return athlete, week_r_data, summary or {}
 
 
-async def _fetch_weather(telegram_id: str, session_type: str = "easy") -> dict:
+async def _fetch_weather(athlete_ref: str, session_type: str = "easy") -> dict:
     """Fetch TRUEPACE adjustment. Returns empty dict on failure."""
     try:
         async with httpx.AsyncClient(timeout=6) as client:
             r = await client.get(
-                f"{API_BASE_URL}/weather/{telegram_id}/adjustment",
+                f"{API_BASE_URL}/weather/{athlete_ref}/adjustment",
                 params={"session_type": session_type},
             )
             if r.status_code == 200:
@@ -178,7 +178,7 @@ def _build_session_url(
             "interval":  paces_dict.get("interval", ""),
             "rep":       paces_dict.get("repetition", ""),
             # Auto-log params
-            "tid":       athlete.get("telegram_id", ""),
+            "tid":       athlete.get("athlete_ref", ""),
             "week":      week_number,
             "day":       day_name,
             "dist":      km,
@@ -218,11 +218,11 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
     Send or edit-in-place the main menu message.
     `edit=True` is used when responding to a callback to update the existing message.
     """
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     try:
         async with httpx.AsyncClient(timeout=8) as client:
-            r = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
+            r = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}")
             if r.status_code != 200:
                 text = _no_profile_text()
                 if edit and update.callback_query:
@@ -324,8 +324,8 @@ async def _fetch_coached_message(
 
 
 async def show_today(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
-    telegram_id = str(update.effective_user.id)
-    athlete, week, summary = await _fetch_all(telegram_id)
+    athlete_ref = str(update.effective_user.id)
+    athlete, week, summary = await _fetch_all(athlete_ref)
 
     if not week:
         text = _no_profile_text() if not athlete else "⚠️ Could not load your plan."
@@ -387,7 +387,7 @@ async def show_today(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: b
     # Append TRUEPACE block
     if athlete and week.get("plan_type") != "c25k":
         session_type = _session_type_for_week(week)
-        weather = await _fetch_weather(telegram_id, session_type)
+        weather = await _fetch_weather(athlete_ref, session_type)
         truepace = format_truepace(weather)
         if truepace:
             text = text + "\n\n" + truepace
@@ -409,10 +409,10 @@ async def show_today(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: b
 # ── Weekly plan ────────────────────────────────────────────────────────────
 
 async def show_plan(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     # Use _fetch_all to get athlete, week, and log summary in one parallel call
-    athlete, week, summary = await _fetch_all(telegram_id)
+    athlete, week, summary = await _fetch_all(athlete_ref)
 
     if not week:
         text = _no_profile_text() if not athlete else "⚠️ Could not load your plan."
@@ -471,8 +471,8 @@ async def _send_dashboard_photo(
 
 
 async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
-    telegram_id = str(update.effective_user.id)
-    athlete, week, summary = await _fetch_all(telegram_id)
+    athlete_ref = str(update.effective_user.id)
+    athlete, week, summary = await _fetch_all(athlete_ref)
 
     if not athlete:
         await _send_or_edit(update, _no_profile_text(), back_keyboard(), edit)
@@ -565,11 +565,11 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
 # ── Paces ──────────────────────────────────────────────────────────────────
 
 async def show_paces(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: bool = False) -> None:
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     try:
         async with httpx.AsyncClient(timeout=8) as client:
-            r = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}/paces")
+            r = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}/paces")
             if r.status_code == 404:
                 await _send_or_edit(update, _no_profile_text(), back_keyboard(), edit)
                 return
@@ -587,7 +587,7 @@ async def show_paces(update: Update, context: ContextTypes.DEFAULT_TYPE, edit: b
         return
 
     # Fetch TRUEPACE and pass into format_paces for integrated two-column table
-    weather = await _fetch_weather(telegram_id, "easy")
+    weather = await _fetch_weather(athlete_ref, "easy")
     text = format_paces(paces, weather)
 
     await _send_or_edit(update, text, back_keyboard(), edit, parse_mode="HTML")
@@ -675,8 +675,8 @@ async def show_calendar_ics(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     Generate and send the week's .ics file so the user can import it into
     their phone calendar.  Triggered by the 📲 Add to Calendar button.
     """
-    telegram_id = str(update.effective_user.id)
-    athlete, week, _ = await _fetch_all(telegram_id)
+    athlete_ref = str(update.effective_user.id)
+    athlete, week, _ = await _fetch_all(athlete_ref)
 
     if not athlete or not week:
         await update.effective_message.reply_text(
@@ -715,7 +715,7 @@ async def show_calendar_ics(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             session_url_builder = _url_builder,
         )
     except Exception as e:
-        _log.exception(f"ICS generation failed for {telegram_id}: {e}")
+        _log.exception(f"ICS generation failed for {athlete_ref}: {e}")
         await update.effective_message.reply_text(
             "⚠️ Could not generate calendar file. Please try again."
         )

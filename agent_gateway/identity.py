@@ -1,7 +1,7 @@
 """
 Gateway-side identity.
 
-coach_core currently treats a raw `telegram_id` as identity with no
+coach_core currently treats a raw `athlete_ref` as identity with no
 authentication, so the gateway does NOT accept one from the client. Instead a
 visitor proves who they are once with a Telegram link code, and the gateway
 issues its own signed bearer token. Every later request carries that token, and
@@ -36,10 +36,10 @@ def _b64d(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-def issue_token(telegram_id: str, ttl_hours: int = SESSION_TTL_HOURS) -> str:
+def issue_token(athlete_ref: str, ttl_hours: int = SESSION_TTL_HOURS) -> str:
     """Mint a signed session token binding this browser to one athlete."""
     payload = {
-        "tid": str(telegram_id),
+        "tid": str(athlete_ref),
         "exp": int(time.time()) + ttl_hours * 3600,
     }
     body = _b64e(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
@@ -48,7 +48,7 @@ def issue_token(telegram_id: str, ttl_hours: int = SESSION_TTL_HOURS) -> str:
 
 
 def verify_token(token: str) -> Optional[str]:
-    """Return the athlete's telegram_id, or None if the token is bad/expired."""
+    """Return the athlete's athlete_ref, or None if the token is bad/expired."""
     if not token or token.count(".") != 1:
         return None
     body, sig = token.split(".", 1)

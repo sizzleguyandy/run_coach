@@ -81,8 +81,8 @@ def _apply_anchor_overlay(week: dict, anchor_runs: list[dict]) -> dict:
     return result
 
 
-async def _get_athlete_or_404(telegram_id: str, db: AsyncSession) -> Athlete:
-    result = await db.execute(select(Athlete).where(Athlete.telegram_id == telegram_id))
+async def _get_athlete_or_404(athlete_ref: str, db: AsyncSession) -> Athlete:
+    result = await db.execute(select(Athlete).where(Athlete.athlete_ref == athlete_ref))
     athlete = result.scalar_one_or_none()
     if not athlete:
         raise HTTPException(status_code=404, detail="Athlete not found.")
@@ -94,10 +94,10 @@ def _current_c25k_week(athlete: Athlete) -> int:
     return max(1, min(athlete.c25k_week or 1, C25K_TOTAL_WEEKS))
 
 
-@router.get("/{telegram_id}/current")
-async def get_current_week_plan(telegram_id: str, db: AsyncSession = Depends(get_db)):
+@router.get("/{athlete_ref}/current")
+async def get_current_week_plan(athlete_ref: str, db: AsyncSession = Depends(get_db)):
     """Return this week's plan. Routes to C25K or full plan based on plan_type."""
-    athlete = await _get_athlete_or_404(telegram_id, db)
+    athlete = await _get_athlete_or_404(athlete_ref, db)
 
     if athlete.plan_type == "c25k":
         week_num = _current_c25k_week(athlete)
@@ -167,10 +167,10 @@ async def get_current_week_plan(telegram_id: str, db: AsyncSession = Depends(get
     return week
 
 
-@router.get("/{telegram_id}/week/{week_number}")
-async def get_week_plan(telegram_id: str, week_number: int, db: AsyncSession = Depends(get_db)):
+@router.get("/{athlete_ref}/week/{week_number}")
+async def get_week_plan(athlete_ref: str, week_number: int, db: AsyncSession = Depends(get_db)):
     """Return a specific week's plan by week number."""
-    athlete = await _get_athlete_or_404(telegram_id, db)
+    athlete = await _get_athlete_or_404(athlete_ref, db)
 
     if athlete.plan_type == "c25k":
         if week_number < 1 or week_number > C25K_TOTAL_WEEKS:
@@ -203,10 +203,10 @@ async def get_week_plan(telegram_id: str, week_number: int, db: AsyncSession = D
     raise HTTPException(status_code=404, detail=f"Week {week_number} not found.")
 
 
-@router.get("/{telegram_id}")
-async def get_full_plan(telegram_id: str, db: AsyncSession = Depends(get_db)):
+@router.get("/{athlete_ref}")
+async def get_full_plan(athlete_ref: str, db: AsyncSession = Depends(get_db)):
     """Return the complete plan. For C25K, returns all 12 weeks."""
-    athlete = await _get_athlete_or_404(telegram_id, db)
+    athlete = await _get_athlete_or_404(athlete_ref, db)
 
     if athlete.plan_type == "c25k":
         return {

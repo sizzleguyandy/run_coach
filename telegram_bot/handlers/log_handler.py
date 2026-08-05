@@ -15,7 +15,7 @@ _LOG_KEYS = ("log_day", "log_distance", "log_duration", "log_rpe")
 
 
 
-async def _current_week_number(client, telegram_id: str, athlete: dict) -> int:
+async def _current_week_number(client, athlete_ref: str, athlete: dict) -> int:
     """Current plan week, capped at total_weeks like the server's own view.
 
     The old local floor((today-start)/7)+1 kept counting past plan end, so
@@ -26,7 +26,7 @@ async def _current_week_number(client, telegram_id: str, athlete: dict) -> int:
     from datetime import date
     import math
     try:
-        r = await client.get(f"{API_BASE_URL}/plan/{telegram_id}/current")
+        r = await client.get(f"{API_BASE_URL}/plan/{athlete_ref}/current")
         if r.status_code == 200:
             wn = r.json().get("week_number")
             if isinstance(wn, int) and wn >= 1:
@@ -141,18 +141,18 @@ async def log_get_rpe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             return LOG_RPE
 
     context.user_data["log_rpe"] = rpe
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     async with httpx.AsyncClient(timeout=10) as client:
         try:
-            athlete_r = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
+            athlete_r = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}")
             athlete_r.raise_for_status()
             athlete = athlete_r.json()
 
-            week_number = await _current_week_number(client, telegram_id, athlete)
+            week_number = await _current_week_number(client, athlete_ref, athlete)
 
             payload = {
-                "telegram_id":        telegram_id,
+                "athlete_ref":        athlete_ref,
                 "week_number":        week_number,
                 "day_name":           context.user_data["log_day"],
                 "actual_distance_km": context.user_data["log_distance"],
@@ -204,26 +204,26 @@ async def log_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def cmd_progress(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show week summary + compliance + coaching notes."""
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     async with httpx.AsyncClient(timeout=10) as client:
         try:
-            athlete_r = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
+            athlete_r = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}")
             if athlete_r.status_code == 404:
                 await update.effective_message.reply_text("No profile found. Use /start first.")
                 return
             athlete_r.raise_for_status()
             athlete = athlete_r.json()
 
-            week_number = await _current_week_number(client, telegram_id, athlete)
+            week_number = await _current_week_number(client, athlete_ref, athlete)
 
             summary_r = await client.get(
-                f"{API_BASE_URL}/log/{telegram_id}/week/{week_number}/summary"
+                f"{API_BASE_URL}/log/{athlete_ref}/week/{week_number}/summary"
             )
             summary_r.raise_for_status()
             summary = summary_r.json()
 
-            week_r = await client.get(f"{API_BASE_URL}/plan/{telegram_id}/week/{week_number}")
+            week_r = await client.get(f"{API_BASE_URL}/plan/{athlete_ref}/week/{week_number}")
             week_r.raise_for_status()
             week = week_r.json()
 
@@ -280,9 +280,9 @@ def _clear_race(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_lograce(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Start the race-result logging conversation."""
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.get(f"{API_BASE_URL}/athlete/{telegram_id}")
+        r = await client.get(f"{API_BASE_URL}/athlete/{athlete_ref}")
         if r.status_code == 404:
             await update.effective_message.reply_text("No profile found. Use /start first.")
             return ConversationHandler.END
@@ -398,7 +398,7 @@ async def race_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         _clear_race(context)
         return ConversationHandler.END
 
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     dist_km  = context.user_data["race_dist_km"]
     time_min = context.user_data["race_time_min"]
     today    = date.today().isoformat()
@@ -406,7 +406,7 @@ async def race_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             r = await client.post(f"{API_BASE_URL}/log/race", json={
-                "telegram_id":          telegram_id,
+                "athlete_ref":          athlete_ref,
                 "race_distance_km":     dist_km,
                 "finish_time_minutes":  time_min,
                 "race_date":            today,

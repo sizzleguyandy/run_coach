@@ -7,8 +7,8 @@ run days from the Settings menu — without having to redo full onboarding.
 Flow (inline button "🗓️ Change training days"):
   settings → CHANGE_LONG_RUN_DAY → CHANGE_QUALITY_DAY → CHANGE_EASY_DAYS → done
 
-PATCHes /athlete/{telegram_id} with the updated day fields and regenerates
-the plan by calling /plan/{telegram_id}/rebuild.
+PATCHes /athlete/{athlete_ref} with the updated day fields and regenerates
+the plan by calling /plan/{athlete_ref}/rebuild.
 """
 from __future__ import annotations
 
@@ -188,7 +188,7 @@ async def change_easy_day_2(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         chosen = [easy_day_1, day]
 
     extra_training_days = ",".join(chosen)
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     # PATCH the athlete record
     payload = {
@@ -199,11 +199,11 @@ async def change_easy_day_2(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.patch(f"{API_BASE_URL}/athlete/{telegram_id}", json=payload)
+            r = await client.patch(f"{API_BASE_URL}/athlete/{athlete_ref}", json=payload)
             if not r.is_success:
                 raise RuntimeError(f"{r.status_code}: {r.text[:120]}")
     except Exception as e:
-        _log.error(f"training_days PATCH failed for {telegram_id}: {e}")
+        _log.error(f"training_days PATCH failed for {athlete_ref}: {e}")
         await update.effective_message.reply_text(
             "⚠️ Something went wrong saving your days. Please try again.",
             reply_markup=ReplyKeyboardRemove(),

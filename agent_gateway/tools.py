@@ -33,9 +33,9 @@ _current_athlete: ContextVar[Optional[str]] = ContextVar(
 )
 
 
-def bind_athlete(telegram_id: str) -> None:
+def bind_athlete(athlete_ref: str) -> None:
     """Bind the authenticated athlete for the duration of this request."""
-    _current_athlete.set(str(telegram_id))
+    _current_athlete.set(str(athlete_ref))
 
 
 def _client() -> CoreClient:

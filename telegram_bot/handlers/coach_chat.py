@@ -74,13 +74,13 @@ async def handle_question(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("I didn't catch that — try typing your question again.")
         return COACH_QUESTION
 
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
 
     # Let the user know we're thinking — n8n LLM pipeline can take 20–40 s
     thinking_msg = await update.message.reply_text("⏳ Analysing your plan — this may take up to 30 seconds…")
 
     # Build the payload
-    payload = await _build_payload(telegram_id, question)
+    payload = await _build_payload(athlete_ref, question)
 
     # Call n8n
     reply = await _call_chatbot(payload)
@@ -116,7 +116,7 @@ async def coach_chat_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _build_payload(telegram_id: str, question: str) -> dict:
+async def _build_payload(athlete_ref: str, question: str) -> dict:
     """Fetch athlete + plan context and merge with the user's question."""
     payload: dict = {
         "user_question": question,
@@ -134,8 +134,8 @@ async def _build_payload(telegram_id: str, question: str) -> dict:
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             athlete_r, week_r = await _gather_safe(
-                client.get(f"{API_BASE_URL}/athlete/{telegram_id}"),
-                client.get(f"{API_BASE_URL}/plan/{telegram_id}/current"),
+                client.get(f"{API_BASE_URL}/athlete/{athlete_ref}"),
+                client.get(f"{API_BASE_URL}/plan/{athlete_ref}/current"),
             )
 
         if athlete_r and athlete_r.status_code == 200:

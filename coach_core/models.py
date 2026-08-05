@@ -7,7 +7,7 @@ class Athlete(Base):
     __tablename__ = "athletes"
 
     id = Column(Integer, primary_key=True)
-    telegram_id = Column(String, unique=True, nullable=False, index=True)
+    athlete_ref = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
 
     # Plan type: "full" (phase-based) or "c25k" (beginner program)
@@ -44,7 +44,7 @@ class Athlete(Base):
     streak_weeks  = Column(Integer, nullable=False, default=0)  # consecutive compliant weeks
     total_badges  = Column(Integer, nullable=False, default=0)  # badges earned (4 weeks = 1 badge)
 
-    # ── Link code (v1.8) — short code to link Telegram ↔ mobile app ──────────
+    # ── Link code — shareable identifier front-ends connect with ─────────────
     # Generated on first /mycode call. Format: "NAME-XXXX" e.g. "ANDY-4821"
     link_code = Column(String, unique=True, nullable=True, index=True)
 

@@ -71,8 +71,8 @@ async def compute_vo2x_from_race(
 @router.get("/athlete/by-code/{code}")
 async def get_athlete_by_link_code(code: str, request: Request):
     """
-    Look up an athlete by their link code (generated in the Telegram bot via /mycode).
-    Returns the athlete's telegram_id and name so the mobile app can adopt it as its
+    Look up an athlete by their link code (issued at athlete creation).
+    Returns the athlete's athlete_ref and name so a client can adopt it as its
     own athlete identifier — no new record is created.
 
     Rate-limited per client IP to prevent code enumeration.
@@ -94,7 +94,7 @@ async def get_athlete_by_link_code(code: str, request: Request):
             raise HTTPException(status_code=404, detail="Code not found — check the code and try again")
 
         return {
-            "telegram_id":    athlete.telegram_id,
+            "athlete_ref":    athlete.athlete_ref,
             "name":           athlete.name,
             "race_name":      athlete.race_name,
             "race_date":      str(athlete.race_date) if athlete.race_date else None,
@@ -107,7 +107,7 @@ async def get_athlete_by_link_code(code: str, request: Request):
 # ── Mobile coach chat proxy ───────────────────────────────────────────────────
 
 class MobileCoachRequest(BaseModel):
-    athlete_id: str   # The athlete's telegram_id equivalent (UUID stored on device)
+    athlete_id: str   # The athlete's athlete_ref equivalent (UUID stored on device)
     question:   str
 
 

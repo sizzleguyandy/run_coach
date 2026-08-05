@@ -4,7 +4,7 @@ Agent Gateway — FastAPI app.
 A separate service in front of coach_core. It:
   * authenticates a visitor once via their Telegram link code and issues its
     own signed session token (coach_core has no auth of its own, so the
-    gateway does not accept a raw telegram_id from the client);
+    gateway does not accept a raw athlete_ref from the client);
   * runs the coaching agent, which reads coach_core over HTTP, read-only;
   * serves the chat frontend.
 
@@ -74,10 +74,10 @@ async def current_athlete(authorization: str = Header(default="")) -> str:
     that is what stops one visitor reading another athlete's training.
     """
     token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-    telegram_id = verify_token(token)
-    if not telegram_id:
+    athlete_ref = verify_token(token)
+    if not athlete_ref:
         raise HTTPException(status_code=401, detail="Sign in with your link code.")
-    return telegram_id
+    return athlete_ref
 
 
 class LinkRequest(BaseModel):
@@ -92,14 +92,14 @@ async def link(data: LinkRequest):
     except CoreUnavailable as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    if not athlete or not athlete.get("telegram_id"):
+    if not athlete or not athlete.get("athlete_ref"):
         raise HTTPException(
             status_code=404,
             detail="That code didn't match an athlete. Send /mycode to the bot for a fresh one.",
         )
 
     return {
-        "token": issue_token(str(athlete["telegram_id"])),
+        "token": issue_token(str(athlete["athlete_ref"])),
         "name": athlete.get("name"),
         "race_name": athlete.get("race_name"),
     }
@@ -118,11 +118,11 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat(data: ChatRequest, telegram_id: str = Depends(current_athlete)):
+async def chat(data: ChatRequest, athlete_ref: str = Depends(current_athlete)):
     """Ask the coaching agent a question about your own training."""
     # Bind the authenticated athlete for this request. Tools read the athlete
     # from here, so nothing in the message body can redirect them.
-    bind_athlete(telegram_id)
+    bind_athlete(athlete_ref)
 
     history = [
         {"role": t.role, "content": t.content}
@@ -133,7 +133,7 @@ async def chat(data: ChatRequest, telegram_id: str = Depends(current_athlete)):
     try:
         reply = await _get_agent().reply(history, data.message)
     except Exception as e:
-        _log.exception("agent failed for %s", telegram_id)
+        _log.exception("agent failed for %s", athlete_ref)
         raise HTTPException(
             status_code=502,
             detail=f"The coach couldn't answer just now ({type(e).__name__}).",

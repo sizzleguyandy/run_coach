@@ -4,7 +4,6 @@ Admin endpoints.
 All endpoints require:  X-Admin-Key: <ADMIN_SECRET from .env>
 
 GET    /admin/dashboard           — web-based admin UI (login with admin key in browser)
-POST   /admin/broadcast           — send message to all athletes on Telegram
 GET    /admin/stats               — platform stats
 GET    /admin/athletes            — list all athletes with key fields
 DELETE /admin/athletes/{id}       — delete athlete + all their logs/history
@@ -12,12 +11,10 @@ PATCH  /admin/athletes/{id}/vo2x  — update VO2X (also writes VO2XHistory recor
 """
 from __future__ import annotations
 
-import asyncio
 import os
 from datetime import date
 from typing import Optional
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Header
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
@@ -28,9 +25,6 @@ from coach_core.database import get_db
 from coach_core.models import Athlete, RunLog, VO2XHistory
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-
-TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
-
 
 # ── Admin Dashboard ───────────────────────────────────────────────────────────
 
@@ -226,7 +220,7 @@ async def admin_dashboard():
     const q = document.getElementById('searchBar').value.toLowerCase();
     const filtered = allAthletes.filter(a =>
       (a.name || '').toLowerCase().includes(q) ||
-      (a.telegram_id || '').toLowerCase().includes(q) ||
+      (a.athlete_ref || '').toLowerCase().includes(q) ||
       (a.race_name || '').toLowerCase().includes(q)
     );
     renderTable(filtered);
@@ -240,7 +234,7 @@ async def admin_dashboard():
     const rows = athletes.map(a => `
       <tr>
         <td><strong>${esc(a.name || '—')}</strong></td>
-        <td style="color:#64748b;font-size:12px">${esc(a.telegram_id || '—')}</td>
+        <td style="color:#64748b;font-size:12px">${esc(a.athlete_ref || '—')}</td>
         <td><span class="plan-badge ${a.plan_type === 'c25k' ? 'plan-c25k' : 'plan-full'}">${a.plan_type || '—'}</span></td>
         <td>${a.vo2x != null ? a.vo2x.toFixed(1) : '—'}</td>
         <td>${esc(a.race_name || '—')}</td>
@@ -305,105 +299,12 @@ async def admin_dashboard():
 
 
 
-def _get_bot_token() -> str:
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    if not token:
-        raise HTTPException(status_code=500, detail="TELEGRAM_BOT_TOKEN not configured.")
-    return token
-
-
 def _check_admin_key(x_admin_key: str = Header(...)) -> None:
     secret = os.getenv("ADMIN_SECRET", "")
     if not secret:
         raise HTTPException(status_code=500, detail="ADMIN_SECRET not set in .env")
     if x_admin_key != secret:
         raise HTTPException(status_code=401, detail="Invalid admin key.")
-
-
-class BroadcastRequest(BaseModel):
-    message: str                    # HTML-formatted text to send
-    image_url: Optional[str] = None # optional photo URL (will send as photo + caption)
-    parse_mode: str = "HTML"        # always HTML — consistent with system
-
-
-class BroadcastResponse(BaseModel):
-    total_athletes: int
-    sent: int
-    failed: int
-    failed_ids: list[str]
-
-
-@router.post("/broadcast", response_model=BroadcastResponse)
-async def broadcast(
-    body: BroadcastRequest,
-    db: AsyncSession = Depends(get_db),
-    _auth: None = Depends(_check_admin_key),
-):
-    """
-    Send a message to every athlete on the platform.
-
-    Usage:
-      POST /admin/broadcast
-      Headers: X-Admin-Key: your_secret
-      Body: { "message": "<b>Big news!</b>\n\nCheck this out...", "image_url": null }
-
-    Rate limiting: 0.04s delay between sends (25 msg/sec, safely under Telegram's 30/sec limit).
-    Large platforms: for > 5000 users consider running this as a background task.
-    """
-    # Fetch all telegram_ids
-    result = await db.execute(select(Athlete.telegram_id))
-    telegram_ids = [row[0] for row in result.fetchall()]
-
-    if not telegram_ids:
-        return BroadcastResponse(total_athletes=0, sent=0, failed=0, failed_ids=[])
-
-    token = _get_bot_token()
-    sent = 0
-    failed = 0
-    failed_ids: list[str] = []
-
-    async with httpx.AsyncClient(timeout=10) as client:
-        for tid in telegram_ids:
-            try:
-                if body.image_url:
-                    # Send photo with caption
-                    url = TELEGRAM_API.format(token=token, method="sendPhoto")
-                    payload = {
-                        "chat_id": tid,
-                        "photo": body.image_url,
-                        "caption": body.message,
-                        "parse_mode": body.parse_mode,
-                    }
-                else:
-                    # Text only
-                    url = TELEGRAM_API.format(token=token, method="sendMessage")
-                    payload = {
-                        "chat_id": tid,
-                        "text": body.message,
-                        "parse_mode": body.parse_mode,
-                    }
-
-                r = await client.post(url, json=payload)
-
-                if r.status_code == 200 and r.json().get("ok"):
-                    sent += 1
-                else:
-                    failed += 1
-                    failed_ids.append(tid)
-
-            except Exception:
-                failed += 1
-                failed_ids.append(tid)
-
-            # Respect Telegram rate limit — 25 msg/sec
-            await asyncio.sleep(0.04)
-
-    return BroadcastResponse(
-        total_athletes=len(telegram_ids),
-        sent=sent,
-        failed=failed,
-        failed_ids=failed_ids,
-    )
 
 
 @router.get("/stats")
@@ -451,7 +352,7 @@ async def list_athletes(
         rows.append({
             "id":                 a.id,
             "name":               a.name,
-            "telegram_id":        a.telegram_id,
+            "athlete_ref":        a.athlete_ref,
             "plan_type":          a.plan_type,
             "vo2x":               a.vo2x,
             "race_name":          a.race_name,
@@ -492,7 +393,7 @@ async def delete_athlete(
         raise HTTPException(status_code=404, detail=f"Athlete {athlete_id} not found.")
 
     name = athlete.name
-    telegram_id = athlete.telegram_id
+    athlete_ref = athlete.athlete_ref
 
     # Delete cascade: run logs → VO2X history → athlete
     await db.execute(delete(RunLog).where(RunLog.athlete_id == athlete_id))
@@ -504,7 +405,7 @@ async def delete_athlete(
         "deleted": True,
         "athlete_id": athlete_id,
         "name": name,
-        "telegram_id": telegram_id,
+        "athlete_ref": athlete_ref,
     }
 
 
@@ -744,7 +645,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     <!-- Athletes table -->
     <div class="section-header">
       <h2>Athletes</h2>
-      <input class="search-box" id="search" placeholder="Search name or Telegram ID…" oninput="filterTable()">
+      <input class="search-box" id="search" placeholder="Search name or athlete ref…" oninput="filterTable()">
     </div>
     <div class="table-wrap">
       <div id="table-container" class="spinner">Loading…</div>
@@ -882,7 +783,7 @@ function renderTable(athletes) {
   const rows = athletes.map(a => `
     <tr>
       <td><strong>${esc(a.name)}</strong></td>
-      <td class="muted" style="font-size:0.8rem">${esc(a.telegram_id)}</td>
+      <td class="muted" style="font-size:0.8rem">${esc(a.athlete_ref)}</td>
       <td><span class="badge badge-${a.plan_type}">${a.plan_type === 'c25k' ? 'C25K' : 'Full'}</span></td>
       <td>${a.vo2x != null ? a.vo2x : '<span class="muted">—</span>'}</td>
       <td>${esc(a.race_name || '—')}</td>
@@ -901,7 +802,7 @@ function renderTable(athletes) {
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Telegram ID</th><th>Plan</th><th>VO2X</th>
+          <th>Name</th><th>Athlete Ref</th><th>Plan</th><th>VO2X</th>
           <th>Race</th><th>Race Date</th><th>Runs</th><th>Streak</th>
           <th>Joined</th><th>Actions</th>
         </tr>
@@ -914,7 +815,7 @@ function filterTable() {
   const q = document.getElementById('search').value.toLowerCase();
   const filtered = allAthletes.filter(a =>
     a.name.toLowerCase().includes(q) ||
-    a.telegram_id.toLowerCase().includes(q) ||
+    a.athlete_ref.toLowerCase().includes(q) ||
     (a.race_name || '').toLowerCase().includes(q)
   );
   renderTable(filtered);

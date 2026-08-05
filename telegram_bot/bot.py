@@ -38,6 +38,7 @@ from telegram_bot.handlers.onboarding_v2 import (
 
 from telegram_bot.handlers.ui import handle_callback, cmd_menu, cmd_today, cmd_dashboard
 from telegram_bot.handlers.mycode import cmd_mycode
+from telegram_bot.handlers.broadcast import cmd_broadcast
 from telegram_bot.handlers.coach_chat import (
     cmd_ask, coach_chat_callback, handle_question, coach_chat_cancel,
     COACH_QUESTION,
@@ -193,6 +194,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("reset",     cmd_reset))
     app.add_handler(CommandHandler("location",  cmd_location))
     app.add_handler(CommandHandler("mycode",    cmd_mycode))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     # /ask is handled by coach_chat_conv entry point above
 
     # ── Hidden test commands (not in set_bot_commands menu) ───────────────

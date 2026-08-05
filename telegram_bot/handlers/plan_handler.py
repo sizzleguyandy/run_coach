@@ -43,7 +43,7 @@ async def cmd_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """
     from coach_core.engine.sa_cities import find_city, city_keyboard_rows
 
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     args = context.args or []
 
     lat = lon = hour = None
@@ -100,7 +100,7 @@ async def cmd_location(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         context.user_data["awaiting_city"] = True
         return
 
-    await _save_location(update, telegram_id, lat, lon, hour, city_name)
+    await _save_location(update, athlete_ref, lat, lon, hour, city_name)
 
 
 async def handle_city_selection(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -111,7 +111,7 @@ async def handle_city_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
     from coach_core.engine.sa_cities import find_city
     context.user_data.pop("awaiting_city", None)
-    telegram_id = str(update.effective_user.id)
+    athlete_ref = str(update.effective_user.id)
     query = update.message.text.strip()
 
     city = find_city(query)
@@ -120,7 +120,7 @@ async def handle_city_selection(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     await _save_location(
-        update, telegram_id,
+        update, athlete_ref,
         city.latitude, city.longitude, 7,
         f"{city.name} ({city.province})",
     )
@@ -131,12 +131,12 @@ def _is_number(s: str) -> bool:
     except ValueError: return False
 
 
-async def _save_location(update, telegram_id, lat, lon, hour, display_name):
+async def _save_location(update, athlete_ref, lat, lon, hour, display_name):
     from telegram_bot.formatting import back_keyboard
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             r = await client.patch(
-                f"{API_BASE_URL}/athlete/{telegram_id}/location",
+                f"{API_BASE_URL}/athlete/{athlete_ref}/location",
                 json={"latitude": lat, "longitude": lon, "run_hour": hour},
             )
             r.raise_for_status()

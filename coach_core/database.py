@@ -52,7 +52,33 @@ async def get_db():
         yield session
 
 
+def _migrate_schema(conn) -> None:
+    """In-place schema migrations that run before create_all.
+
+    Kept deliberately small and idempotent: each step checks the live schema
+    first, so running it on an already-migrated database is a no-op and it is
+    safe on every boot.
+    """
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(conn)
+    if "athletes" not in inspector.get_table_names():
+        return   # fresh database — create_all builds the current schema
+
+    columns = {c["name"] for c in inspector.get_columns("athletes")}
+
+    # telegram_id -> athlete_ref: the identity is an opaque reference, not a
+    # Telegram-specific field. Supported by SQLite 3.25+ and PostgreSQL.
+    if "telegram_id" in columns and "athlete_ref" not in columns:
+        conn.execute(text("ALTER TABLE athletes RENAME COLUMN telegram_id TO athlete_ref"))
+        import logging
+        logging.getLogger(__name__).info(
+            "schema: renamed athletes.telegram_id -> athletes.athlete_ref"
+        )
+
+
 async def init_db():
     async with engine.begin() as conn:
         from coach_core import models  # noqa: F401
+        await conn.run_sync(_migrate_schema)
         await conn.run_sync(Base.metadata.create_all)
