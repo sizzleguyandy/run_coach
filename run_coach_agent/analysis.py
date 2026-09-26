@@ -23,6 +23,7 @@ from datetime import datetime
 HR_DRIFT_FLAG_BPM = 15          # second-half avg HR this much above first-half -> flag the run
 HR_DRIFT_STREAK_FOR_ACTION = 2   # this many flagged runs in a row -> the pattern is real, not noise
 DISTANCE_SHORTFALL_PCT = 0.90    # actual/planned below this -> flag
+DISTANCE_SHORTFALL_STREAK_FOR_ACTION = 2  # this many short runs in a row -> raise it
 MISSED_RUN_STREAK_FOR_ACTION = 2 # consecutive missed sessions of the same type -> raise it
 VOLUME_JUMP_WARN_PCT = 0.10      # week-over-week growth above this -> note it (not necessarily wrong)
 GENERAL_FITNESS_VOLUME_JUMP_WARN_PCT = 0.05  # general-fitness blocks ramp at half the race-build rate
@@ -38,6 +39,7 @@ class RunComparison:
     hr_drift_flagged: bool
     pace_vs_prescribed_sec_per_km: float | None
     duration_pct_of_plan: float | None = None
+    session_type: str | None = None          # of the matched program row, if any
     notes: list[str] = field(default_factory=list)
 
 
@@ -100,36 +102,85 @@ def compare_run_to_program(run_log_row: dict, program_row: dict | None) -> RunCo
         hr_drift_flagged=hr_drift_flagged,
         pace_vs_prescribed_sec_per_km=pace_delta,
         duration_pct_of_plan=duration_pct,
+        session_type=program_row.get('session_type') if program_row else None,
         notes=notes,
     )
 
 
-def update_signal_state(current_state: dict | None, comparison: RunComparison,
-                          signal_name: str, run_log_id: str, now_iso: str) -> dict:
-    """Update a streak counter for one signal type. Call once per
-    signal per run. This is what turns 'one bad run' into 'a pattern
-    worth acting on' -- the agent should only escalate its response
-    when current_streak crosses the *_FOR_ACTION threshold, and
-    should say so explicitly rather than reacting to single events.
+# Each signal: which session types it tracks, and how many flagged
+# events in a row count as a real pattern. A session of a type the
+# signal doesn't track leaves its streak untouched -- an easy run says
+# nothing about long-run HR drift, so it must not reset that streak.
+SIGNALS = {
+    'long_run_hr_drift':      {'session_types': {'long'},
+                               'threshold': HR_DRIFT_STREAK_FOR_ACTION},
+    'distance_shortfall':     {'session_types': None,   # any matched session
+                               'threshold': DISTANCE_SHORTFALL_STREAK_FOR_ACTION},
+    'missed_easy_run_streak': {'session_types': {'easy', 'walk_run'},
+                               'threshold': MISSED_RUN_STREAK_FOR_ACTION},
+}
+
+
+def update_signal_state(current_state: dict | None, signal_name: str, now_iso: str,
+                        comparison: RunComparison | None = None,
+                        run_log_id: str | None = None,
+                        missed_program_row: dict | None = None) -> dict:
+    """Update a streak counter for one signal. This is what turns 'one
+    bad run' into 'a pattern worth acting on' -- the agent should only
+    escalate when action_threshold_met is True, and say so explicitly
+    rather than reacting to single events.
+
+    Two kinds of event feed it:
+      - a completed run: pass `comparison` (+ run_log_id). A run that
+        matched a tracked session type either extends the streak
+        (flagged) or resets it (clean).
+      - a missed session: pass `missed_program_row`. Only
+        missed_easy_run_streak counts these; a completed easy/walk_run
+        session resets it.
 
     current_state: the existing signal_state row for
     (athlete_id, signal_name), or None if this is the first time.
+    Returns the new row plus 'action_threshold_met' and 'updated'
+    (False when the event wasn't relevant to this signal).
     """
-    is_flagged = {
-        'long_run_hr_drift': comparison.hr_drift_flagged,
-        'distance_shortfall': any(pct is not None and pct < DISTANCE_SHORTFALL_PCT
-                                  for pct in (comparison.distance_pct_of_plan,
-                                              comparison.duration_pct_of_plan)),
-    }.get(signal_name, False)
+    if signal_name not in SIGNALS:
+        raise ValueError(f"unknown signal {signal_name!r}; expected one of {sorted(SIGNALS)}")
+    spec = SIGNALS[signal_name]
+    prev = current_state['current_streak'] if current_state else 0
 
-    streak = (current_state['current_streak'] + 1) if (current_state and is_flagged) else (1 if is_flagged else 0)
+    if missed_program_row is not None:
+        session_type = missed_program_row.get('session_type')
+        relevant = signal_name == 'missed_easy_run_streak' and session_type in spec['session_types']
+        is_flagged = True
+    elif comparison is not None:
+        session_type = comparison.session_type
+        relevant = spec['session_types'] is None or session_type in spec['session_types']
+        if signal_name == 'distance_shortfall' and session_type is None:
+            relevant = False                   # unmatched run: nothing to fall short of
+        is_flagged = {
+            'long_run_hr_drift': comparison.hr_drift_flagged,
+            'distance_shortfall': any(pct is not None and pct < DISTANCE_SHORTFALL_PCT
+                                      for pct in (comparison.distance_pct_of_plan,
+                                                  comparison.duration_pct_of_plan)),
+            'missed_easy_run_streak': False,   # it happened, so it wasn't missed
+        }[signal_name]
+    else:
+        raise ValueError("pass either comparison (a completed run) or missed_program_row")
+
+    if not relevant:
+        streak = prev
+    else:
+        streak = prev + 1 if is_flagged else 0
 
     return {
         'signal_name': signal_name,
         'current_streak': streak,
-        'last_run_log_id': run_log_id,
-        'last_updated_at': now_iso,
-        'action_threshold_met': streak >= HR_DRIFT_STREAK_FOR_ACTION,
+        'last_run_log_id': run_log_id if (relevant and comparison is not None)
+                           else (current_state or {}).get('last_run_log_id'),
+        'last_updated_at': now_iso if relevant else (current_state or {}).get('last_updated_at', now_iso),
+        'action_threshold': spec['threshold'],
+        'action_threshold_met': streak >= spec['threshold'],
+        'updated': relevant,
     }
 
 

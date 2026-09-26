@@ -1,21 +1,57 @@
 {
-  "$comment": "Standard function-calling JSON schema. Each 'function' block is portable to most agent platforms (OpenAI-style tool-calling, Anthropic tool-use, or a Hermes/OpenClaw equivalent) with minimal reshaping. The description fields carry the behavioral rules an agent needs at call-time -- keep them if you convert format.",
+  "$comment": "Function-calling definitions for every tool in coach_tools.py (names and parameters match exactly; dispatch with coach_tools.call_tool(name, args) or `python3 coach_tools.py <name> '<json>'`). Portable to OpenAI-style tool-calling or Anthropic tool use; the description fields carry call-time rules, keep them if you convert.",
   "tools": [
     {
       "type": "function",
       "function": {
+        "name": "get_athlete_summary",
+        "description": "Load everything about one athlete before replying to them: profile, active goal (race or general_fitness), current plan revision, this week's and next week's sessions, pattern signals, last 5 runs, latest intake. Call this at the start of every conversation turn about an athlete -- never answer from memory or chat history, the plan may have been revised.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string",
+              "description": "Alternative to athlete_id."
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_athletes",
+        "description": "List all athletes (id, name, email).",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "ingest_intake_form",
-        "description": "Process a new or updated Google Form submission. Writes/updates athlete_profile and creates a race_target row. The form's 'What are you training for?' branch sets race_target.goal_type: 'race', or 'general_fitness' when the athlete has no event and just wants to get fitter (race_name='General fitness', no race_date/distance, review_date = start + 12 weeks, baseline_continuous_run_min / baseline_weekly_run_min / health_screen_flags written to athlete_profile). Does NOT generate the program itself -- call generate_program separately once this returns, so a human (or the agent) can review the parsed intake first if desired. If health_screen_flags is non-empty, ask for medical clearance before calling generate_program.",
+        "description": "Process a Google Form submission. Maps question text to fields, writes/updates athlete_profile, stores the raw response, and creates the goal row (replacing any active goal). The 'What are you training for?' answer sets goal_type: 'race', or 'general_fitness' when the athlete has no event and just wants to get fitter. Returns next_steps -- do them in order (medical clearance, course info, HR zones, fixed commitments) BEFORE generate_program. Does not generate the plan itself.",
         "parameters": {
           "type": "object",
           "properties": {
             "form_response_json": {
               "type": "object",
-              "description": "Raw form response payload, keyed by question text or ID as delivered by the form platform."
+              "description": "The raw form response, keyed by question text exactly as the form delivers it (canonical keys like race_date also work)."
             },
             "hr_zone_file_url": {
               "type": "string",
-              "description": "URL or path to an uploaded HR zone screenshot/export, if the athlete provided one. Read this directly rather than trusting any manually-typed zone numbers elsewhere in the form."
+              "description": "URL/path of an uploaded HR zone screenshot/export, if any."
+            },
+            "start_date": {
+              "type": "string",
+              "description": "ISO date the plan should start; default next Monday."
             }
           },
           "required": [
@@ -27,21 +63,56 @@
     {
       "type": "function",
       "function": {
-        "name": "fetch_course_info",
-        "description": "Fetch a race's official page (and search the web if needed) to extract real distance, elevation gain, and terrain notes. Always call this during intake rather than relying on the athlete's own description of course difficulty -- athletes reliably underestimate or don't know elevation figures. Race goals only -- skip for goal_type='general_fitness', which has no course.",
+        "name": "update_athlete_profile",
+        "description": "Update athlete facts: HR zones (must include hr_zone_source and hr_zone_basis_notes), fixed_commitments (JSON list), weight, injury_history, easy pace override, medical_clearance_at (ISO date, after the athlete confirms clearance), baseline_continuous_run_min / baseline_weekly_run_min.",
         "parameters": {
           "type": "object",
           "properties": {
-            "course_url": {
+            "athlete_id": {
               "type": "string"
             },
-            "race_name": {
-              "type": "string",
-              "description": "Used as a fallback web search query if course_url doesn't resolve or lacks elevation data."
+            "fields": {
+              "type": "object",
+              "description": "Column -> value."
             }
           },
           "required": [
-            "race_name"
+            "athlete_id",
+            "fields"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "record_course_info",
+        "description": "Race goals only. FIRST fetch the race's official page yourself with your web tool (search by race name if there's no URL); then record real elevation gain and terrain here. Never use the athlete's description of the course. Regenerate the plan if this changes after generation.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "race_id": {
+              "type": "string"
+            },
+            "elevation_gain_m": {
+              "type": "number"
+            },
+            "terrain_notes": {
+              "type": "string"
+            },
+            "distance_km": {
+              "type": "number"
+            },
+            "location": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string",
+              "description": "URL you took the figures from."
+            }
+          },
+          "required": [
+            "race_id"
           ]
         }
       }
@@ -50,7 +121,7 @@
       "type": "function",
       "function": {
         "name": "generate_program",
-        "description": "Generate a full training program from athlete_profile + race_target and write it as a new program_revision with associated program rows. For goal_type='race' applies the fixed rules from AGENT_INSTRUCTIONS.md (10% weekly growth cap, cutback cadence, time-trial checkpoints, hill-specificity if elevation_gain_m is significant). For goal_type='general_fitness' calls general_fitness.generate_general_fitness_plan(): time-based, conversational effort only, walk/run ladder if the athlete can't run 20 min non-stop, otherwise max +5%/week (cap +10 min), cutback every 3rd week, no time trials or quality sessions. This is a code-backed generator the agent parameterizes, not a free-text generation -- the caller supplies preferences/constraints, the tool enforces the non-negotiable rules.",
+        "description": "Build the plan with deterministic code and write it as a new program_revision (superseding pending future sessions and cancelling the old plan's auto check-ins). goal_type='race' -> race_plan.py: max +10%/week, cutback every 4th week, growth onto the long run, 2 time trials, hill repeats on hilly courses, taper, NO race pace. goal_type='general_fitness' -> general_fitness.py: minutes not km, conversational effort only, walk/run ladder if they can't run 20 min non-stop, else max +5%/week (cap +10 min), cutback every 3rd week, 12-week block. Also creates check-ins: end of every week, after each time trial, end of a general-fitness block. Returns ok:false with a reason + suggestion if the athlete isn't ready (low base, not enough weeks, medical clearance missing) -- relay that honestly; don't work around it.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -62,41 +133,66 @@
             },
             "reason": {
               "type": "string",
-              "description": "Why this revision is being created, e.g. 'initial plan from intake' or 'rebuilt after time trial #1'."
+              "description": "e.g. 'initial plan from intake', 'rebuilt after time trial #1', 'repeat week 3 at same level'."
+            },
+            "start_date": {
+              "type": "string",
+              "description": "ISO date; default next Monday. When regenerating mid-plan, pass the first date that should change."
+            },
+            "changed_by": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "athlete_request"
+              ]
             },
             "constraints": {
               "type": "object",
-              "description": "Athlete-requested constraints to respect, e.g. whole-number distances, fixed weekday assignments, days per week range.",
               "properties": {
                 "whole_number_distances": {
                   "type": "boolean"
                 },
+                "min_session_km": {
+                  "type": "number"
+                },
+                "max_days_per_week": {
+                  "type": "integer",
+                  "description": "Race: sessions/week (3-6, default 4)."
+                },
                 "min_days_per_week": {
                   "type": "integer"
                 },
-                "max_days_per_week": {
-                  "type": "integer"
-                },
                 "fixed_long_run_day": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Mon..Sun; default from intake."
+                },
+                "avoid_days": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Days that can't hold a run; default from intake."
                 },
                 "sessions_per_week": {
                   "type": "integer",
-                  "description": "General fitness only: 2 or 3 (a 4th is added by the generator later in the block, never requested up front)."
+                  "description": "General fitness: 2 or 3 (a 4th is added by the generator later, never up front)."
                 }
               }
             },
             "general_fitness_start_level": {
               "type": "object",
-              "description": "General fitness only, when regenerating after a week that wasn't completed comfortably: the athlete's CURRENT level, so they repeat it rather than progress. Never pass a higher level than the one they just did.",
+              "description": "General fitness only, when a week wasn't completed comfortably. Use {\"repeat_last_week\": true} with start_date = the Monday to restart from: the tool repeats the level of the 7 days before start_date. Or pass start_step / start_weekly_min explicitly -- never higher than what they just did.",
               "properties": {
+                "repeat_last_week": {
+                  "type": "boolean"
+                },
                 "start_step": {
                   "type": "integer",
-                  "description": "Walk/run ladder rung index (0-based) to restart from."
+                  "description": "Walk/run ladder rung (0-based)."
                 },
                 "start_weekly_min": {
                   "type": "number",
-                  "description": "Weekly running minutes to restart from (continuous mode)."
+                  "description": "Weekly minutes (continuous mode)."
                 }
               }
             }
@@ -112,114 +208,8 @@
     {
       "type": "function",
       "function": {
-        "name": "parse_run_file",
-        "description": "Parse an uploaded .fit or .gpx file into a structured summary (distance, pace, HR, elevation, splits, HR-drift split). Backed by fit_parser.py / gpx_parser.py -- pure computation, deterministic, no LLM involved. ALWAYS call this rather than describing or estimating a run's metrics yourself. Check the returned parser_notes field before treating the summary as complete.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "file_path": {
-              "type": "string"
-            },
-            "file_format": {
-              "type": "string",
-              "enum": [
-                "fit",
-                "gpx",
-                "auto"
-              ],
-              "description": "Use 'auto' to detect from file extension/content."
-            }
-          },
-          "required": [
-            "file_path"
-          ]
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
-        "name": "match_run_to_program",
-        "description": "Find the program row (planned session) that an uploaded run most likely corresponds to, by date proximity (same day, else +/-1 day) and session type. Returns null if nothing matches closely -- in that case, ask the athlete what the run was rather than guessing or leaving it unmatched silently.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "athlete_id": {
-              "type": "string"
-            },
-            "run_recorded_at": {
-              "type": "string",
-              "description": "ISO timestamp from the parsed run file."
-            },
-            "run_distance_km": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "athlete_id",
-            "run_recorded_at"
-          ]
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
-        "name": "compare_run_to_program",
-        "description": "Deterministically compare a parsed run against its matched program row: distance delta (or duration delta for time-based general-fitness sessions), HR-drift flag, effort-vs-prescription. Backed by analysis.py. Returns structured notes -- read and relay these; do not re-derive your own comparison from the raw numbers.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "run_log_id": {
-              "type": "string"
-            },
-            "program_row_id": {
-              "type": "string",
-              "description": "May be null if match_run_to_program found nothing."
-            }
-          },
-          "required": [
-            "run_log_id"
-          ]
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
-        "name": "update_signal_state",
-        "description": "Update the streak counter for a named pattern signal (e.g. long_run_hr_drift, distance_shortfall, missed_easy_run_streak) after a run comparison. Returns whether the streak has crossed the action threshold. Call this for every relevant signal after every run comparison -- this is what distinguishes 'noticed once' from 'confirmed pattern, act on it', and the distinction should never be made from memory.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "athlete_id": {
-              "type": "string"
-            },
-            "signal_name": {
-              "type": "string",
-              "enum": [
-                "long_run_hr_drift",
-                "distance_shortfall",
-                "missed_easy_run_streak"
-              ]
-            },
-            "run_log_id": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "athlete_id",
-            "signal_name",
-            "run_log_id"
-          ]
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
         "name": "get_upcoming_sessions",
-        "description": "Read pending program rows for an athlete within a date range. Use this to answer 'what's my run today/tomorrow/this week' -- always read from the program table, never recall or reconstruct the plan from conversation history, since the plan may have been revised since it was last discussed.",
+        "description": "Read the current (non-superseded) sessions in a date range. Use for 'what's my run today / this week'. Defaults to the next 7 days from today.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -234,9 +224,105 @@
             }
           },
           "required": [
+            "athlete_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "parse_run_file",
+        "description": "Parse an uploaded .fit or .gpx file and log it in run_log (duplicates are detected, not re-inserted). Pure code -- ALWAYS use this rather than estimating a run's numbers. If data_quality_warning is set, tell the athlete what's missing.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string"
+            },
+            "athlete_id": {
+              "type": "string"
+            },
+            "file_format": {
+              "type": "string",
+              "enum": [
+                "fit",
+                "gpx",
+                "auto"
+              ]
+            },
+            "athlete_notes": {
+              "type": "string",
+              "description": "Anything the athlete said about the run."
+            }
+          },
+          "required": [
+            "file_path",
+            "athlete_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "match_run_to_program",
+        "description": "Find the pending session (same day, else +/-1 day) this run corresponds to. If match is null, ask the athlete what the run was -- don't guess.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "run_log_id": {
+              "type": "string"
+            }
+          },
+          "required": [
             "athlete_id",
-            "start_date",
-            "end_date"
+            "run_log_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "compare_run_to_program",
+        "description": "Deterministic comparison of a logged run against its session (distance or, for time-based sessions, duration; HR cap; HR drift), marks the session done, and updates ALL pattern signals automatically. Relay the notes; a signal with action_threshold_met=false is 'watching', true means the pattern repeated and you should say what you're changing. Omit program_row_id for an unplanned run.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "run_log_id": {
+              "type": "string"
+            },
+            "program_row_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "run_log_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "record_missed_session",
+        "description": "Mark a pending session as missed (the athlete said so, or a week review found no file) and update the missed-session streak. Never add missed volume to another session.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "program_row_id": {
+              "type": "string"
+            },
+            "athlete_note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "program_row_id"
           ]
         }
       }
@@ -245,7 +331,7 @@
       "type": "function",
       "function": {
         "name": "write_program_revision",
-        "description": "Record a plan change as a new program_revision and update the affected program rows, marking prior rows superseded rather than deleting them. Every change to future sessions must go through this -- never issue a raw UPDATE to the program table, since that breaks the audit trail check_trigger_staleness depends on.",
+        "description": "Every change to future sessions goes through this: supersede the affected rows and add replacement sessions (a move = supersede + add on the new date). Run with dry_run=true FIRST when the athlete asks to move something: it warns about hard sessions landing on adjacent days or doubled-up days, so you can raise that before agreeing. If you proceed against your advice, say so in summary and keep a guardrail (e.g. an HR cap).",
         "parameters": {
           "type": "object",
           "properties": {
@@ -267,13 +353,69 @@
             },
             "summary": {
               "type": "string",
-              "description": "Short human-readable diff, e.g. 'Held Sunday long run flat at 9km through weeks 3-4 to absorb the 4th weekly run returning.'"
+              "description": "Short human-readable diff."
             },
             "affected_program_row_ids": {
               "type": "array",
               "items": {
                 "type": "string"
               }
+            },
+            "new_sessions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A program row. Required: session_date (ISO), session_type. Distance OR duration.",
+                "properties": {
+                  "session_date": {
+                    "type": "string"
+                  },
+                  "session_type": {
+                    "type": "string",
+                    "enum": [
+                      "easy",
+                      "quality",
+                      "long",
+                      "time_trial",
+                      "race",
+                      "rest",
+                      "walk_run"
+                    ]
+                  },
+                  "session_label": {
+                    "type": "string"
+                  },
+                  "prescribed_distance_km": {
+                    "type": "number"
+                  },
+                  "prescribed_duration_min": {
+                    "type": "number"
+                  },
+                  "prescribed_effort_desc": {
+                    "type": "string"
+                  },
+                  "prescribed_hr_low": {
+                    "type": "integer"
+                  },
+                  "prescribed_hr_high": {
+                    "type": "integer"
+                  },
+                  "week_phase": {
+                    "type": "string"
+                  },
+                  "week_num": {
+                    "type": "integer",
+                    "description": "Optional; inferred from the session it replaces."
+                  }
+                },
+                "required": [
+                  "session_date",
+                  "session_type"
+                ]
+              }
+            },
+            "dry_run": {
+              "type": "boolean"
             }
           },
           "required": [
@@ -289,26 +431,8 @@
     {
       "type": "function",
       "function": {
-        "name": "check_trigger_staleness",
-        "description": "Before acting on a fired scheduled or conditional check-in, compare the program_revision it was created against to the athlete's current revision. If they differ, the trigger's prompt may reference session structure that no longer exists. Call this FIRST on every fired trigger, before generating a response to it.",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "trigger_id": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "trigger_id"
-          ]
-        }
-      }
-    },
-    {
-      "type": "function",
-      "function": {
         "name": "schedule_checkin",
-        "description": "Create a checkin_trigger bound to a program event (a time trial, a peak week) or a signal streak crossing threshold, rather than an arbitrary calendar date wherever possible. Records the current program_revision_id so later staleness checks work.",
+        "description": "Create an extra check-in bound to a session, a signal streak, or (last resort) a date. Plans already come with weekly, time-trial and end-of-block check-ins; use this for anything else (e.g. 'ask about the knee after Saturday's run').",
         "parameters": {
           "type": "object",
           "properties": {
@@ -330,7 +454,12 @@
               "type": "string"
             },
             "depends_on_signal": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "long_run_hr_drift",
+                "distance_shortfall",
+                "missed_easy_run_streak"
+              ]
             },
             "depends_on_streak_count": {
               "type": "integer"
@@ -343,6 +472,43 @@
             "athlete_id",
             "trigger_type",
             "prompt_template"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_due_checkins",
+        "description": "List check-ins that should fire now (date reached, session passed, or streak reached). Run this on a daily schedule; for each, call check_trigger_staleness before acting.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "as_of_date": {
+              "type": "string"
+            },
+            "athlete_id": {
+              "type": "string"
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "check_trigger_staleness",
+        "description": "Call FIRST for every due check-in. Marks it fired, or stale_cancelled if the session it depended on was replaced. If stale is true the plan changed since the check-in was written: tell the athlete, and answer from get_athlete_summary, not from the old prompt. If status is stale_cancelled, don't act on it at all.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "trigger_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "trigger_id"
           ]
         }
       }

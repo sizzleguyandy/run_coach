@@ -39,6 +39,7 @@ CREATE TABLE athlete_profile (
     health_screen_flags  TEXT,                   -- JSON array of any "yes" answers to the form's health questions; non-empty = get medical clearance before generating
     baseline_continuous_run_min INTEGER,         -- longest they can run non-stop right now (general-fitness intake)
     baseline_weekly_run_min     INTEGER,         -- roughly how many minutes of running per week lately
+    medical_clearance_at TEXT,                   -- ISO date the athlete confirmed medical clearance (only needed if health_screen_flags is non-empty)
     distance_unit        TEXT DEFAULT 'km',      -- 'km' | 'mi' -- convert at the edges, store km internally regardless
 
     created_at           TEXT NOT NULL,
@@ -184,9 +185,26 @@ CREATE TABLE checkin_trigger (
     revision_id_at_creation  TEXT NOT NULL REFERENCES program_revision(revision_id),  -- staleness check
     prompt_template          TEXT NOT NULL,
     status                    TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'fired' | 'stale_cancelled'
+    origin                    TEXT NOT NULL DEFAULT 'agent',    -- 'generator' (auto-created with a plan; cancelled when the plan is regenerated) | 'agent'
     created_at                TEXT NOT NULL
+);
+
+-- ============================================================
+-- INTAKE_RESPONSE — every form submission, raw and normalised.
+-- Fields the program generators need that aren't athlete facts
+-- (longest recent run, 4-week km, best effort, preferred long-run
+-- day, days to avoid, delivery preference, free-text notes) live
+-- here rather than being force-fit into athlete_profile columns.
+-- ============================================================
+CREATE TABLE intake_response (
+    intake_id             TEXT PRIMARY KEY,
+    athlete_id            TEXT NOT NULL REFERENCES athlete_profile(athlete_id),
+    received_at            TEXT NOT NULL,
+    raw_json               TEXT NOT NULL,          -- exactly what the form delivered
+    normalized_json        TEXT NOT NULL           -- canonical keys, see coach_tools.INTAKE_FIELDS
 );
 
 CREATE INDEX idx_program_athlete_date ON program(athlete_id, session_date);
 CREATE INDEX idx_runlog_athlete_date ON run_log(athlete_id, recorded_at);
 CREATE INDEX idx_program_status ON program(status);
+CREATE INDEX idx_intake_athlete ON intake_response(athlete_id, received_at);

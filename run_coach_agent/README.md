@@ -6,18 +6,24 @@ files, plan tracking in a SQL database. Built and validated against a real
 ~7-week training block (this repo's parsers reproduce that block's actual
 numbers exactly — see the test commands below).
 
+**Handing this to an agent? Point it at `START_HERE.md`.**
+
 ## Files
 
 | File | What it is |
 |---|---|
-| `schema.sql` | SQLite schema — the single source of truth for athlete profile, race target, program (planned sessions), run log (actual sessions), pattern-tracking, and check-in triggers |
-| `fit_parser.py` | Zero-dependency FIT file parser |
-| `gpx_parser.py` | Zero-dependency GPX file parser |
-| `analysis.py` | Deterministic comparison engine: plan-vs-actual, HR-drift detection, streak tracking, trigger staleness checking |
-| `general_fitness.py` | Program generator for athletes with no event ("I just want to get fitter"): time-based, walk/run ladder or +5%/week easy running, cutback every 3rd week |
-| `google_form_spec.md` | Exact field list for the intake form, mapped to schema columns |
+| `START_HERE.md` | Operating manual for the agent: setup, how to call tools, step-by-step playbooks |
 | `AGENT_INSTRUCTIONS.md` | The system prompt and behavioral rules for the agent, plus the reasoning for each rule |
-| `tools_schema.json` | Function-calling tool definitions wiring the agent to the code above |
+| `coach_tools.py` | Working implementation of every tool (SQLite + parsers + generators), callable via `call_tool()` or the command line |
+| `tools_schema.json` | Function-calling definitions matching `coach_tools.py` exactly |
+| `schema.sql` | SQLite schema — the single source of truth for athlete profile, goal (race or general fitness), program, run log, pattern signals, check-ins, intake responses |
+| `race_plan.py` | Race program generator (10% cap, cutbacks, long-run-first growth, time trials, hill specificity, taper) |
+| `general_fitness.py` | Program generator for athletes with no event ("I just want to get fitter"): time-based, walk/run ladder or +5%/week easy running, cutback every 3rd week |
+| `analysis.py` | Deterministic comparison engine: plan-vs-actual, HR-drift detection, streak tracking, trigger staleness checking |
+| `fit_parser.py` / `gpx_parser.py` | Zero-dependency run file parsers |
+| `google_form_spec.md` | Exact field list for the intake form, including the race / get-fitter branch |
+| `examples/` | Sample form responses (race and general fitness) and a sample GPX |
+| `tests/test_kit.py` | End-to-end tests: `python3 -m unittest discover -s tests` |
 
 ## Why it's built this way
 
@@ -31,42 +37,32 @@ straight into a half-marathon pace — the coaching went wrong or nearly did.
 
 ## Quickstart
 
+Python 3.10+, no packages to install.
+
 ```bash
-# 1. Create the database
-python3 -c "
-import sqlite3
-conn = sqlite3.connect('coach.db')
-conn.executescript(open('schema.sql').read())
-conn.commit()
-"
+cd run_coach_agent
+python3 -m unittest discover -s tests          # everything works?
+python3 coach_tools.py init_db                 # creates coach.db
 
-# 2. Parse a run file directly (no DB needed to test this part)
-python3 fit_parser.py /path/to/run.fit
-python3 gpx_parser.py /path/to/run.gpx
+# Walk through a general-fitness athlete end to end
+python3 coach_tools.py ingest_intake_form \
+  "{\"form_response_json\": $(cat examples/intake_general_fitness.json)}"
+python3 coach_tools.py generate_program \
+  '{"athlete_id": "<from above>", "race_id": "<from above>", "reason": "initial plan"}'
+python3 coach_tools.py parse_run_file \
+  '{"file_path": "examples/example_run.gpx", "athlete_id": "<from above>"}'
 
-# 3. Preview a general-fitness (no race) plan
+# Preview the generators directly
 python3 general_fitness.py
-
-# 4. Wire tools_schema.json's functions to thin wrappers around
-#    fit_parser.parse_fit() / gpx_parser.parse_gpx() / analysis.py's
-#    functions plus your platform's DB access and scheduling primitives.
+python3 race_plan.py
 ```
 
-## What you still need to build
+## What your platform still needs to provide
 
-- The race program generator itself (`generate_program` for
-  `goal_type='race'`) — the rules it must
-  follow are in `AGENT_INSTRUCTIONS.md`, but the actual week-by-week
-  session construction is specific to your training philosophy.
-  The no-race "general fitness" option is already built in
-  `general_fitness.py`; route `goal_type='general_fitness'` to it. This
-  kit gives you the guardrails (10% rule, cutback cadence, hill
-  specificity, time-trial checkpoints), not a canned plan.
-- The DB access layer connecting `tools_schema.json`'s functions to
-  `schema.sql` — SQLite via Python's stdlib `sqlite3` is enough to start.
-- The intake form itself (Google Forms or equivalent) per
-  `google_form_spec.md`, and a webhook or poller feeding submissions to
-  `ingest_intake_form`.
-- Your platform's scheduling primitive for `schedule_checkin` —
-  `checkin_trigger` rows describe *when* and *why* a check-in should
-  fire; actually firing it is platform-specific.
+- A way to receive form submissions and call `ingest_intake_form`
+  (Google Forms/Sheets trigger or poller).
+- A way to message the athlete and receive their run files.
+- A daily scheduler that runs the check-in sweep (`get_due_checkins`
+  → `check_trigger_staleness` → act).
+- Web fetch (course pages) and image reading (HR zone screenshots) for
+  the agent — it records what it finds via tools.
