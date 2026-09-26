@@ -33,11 +33,12 @@ from datetime import date, datetime, timedelta, timezone
 
 import analysis
 import history
+import plan_review
 from fit_parser import parse_fit
 from general_fitness import (DEFAULT_WEEKS as GF_WEEKS, WALK_RUN_LADDER, _walk_run_label,
                              generate_general_fitness_plan)
 from gpx_parser import parse_gpx
-from race_plan import generate_race_plan
+from race_plan import MIN_BASE_LONGEST_KM, MIN_BASE_WEEKLY_KM, _profile as race_profile, generate_race_plan
 from trends import build_trends
 
 KIT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -99,6 +100,16 @@ def connect():
     cols = {r[1] for r in conn.execute("PRAGMA table_info(athlete_profile)")}
     if cols and "welcomed_at" not in cols:
         conn.execute("ALTER TABLE athlete_profile ADD COLUMN welcomed_at TEXT")
+        conn.commit()
+    rcols = {r[1] for r in conn.execute("PRAGMA table_info(program_revision)")}
+    if rcols and "constraints_json" not in rcols:
+        conn.execute("ALTER TABLE program_revision ADD COLUMN constraints_json TEXT")
+        conn.commit()
+    if not conn.execute("SELECT name FROM sqlite_master WHERE name='plan_review'").fetchone():
+        with open(os.path.join(KIT_DIR, "schema.sql")) as f:
+            ddl = f.read()
+        start = ddl.index("CREATE TABLE plan_review")
+        conn.executescript(ddl[start:ddl.index(");", start) + 2])
         conn.commit()
     if not conn.execute("SELECT name FROM sqlite_master WHERE name='signal_event'").fetchone():
         # Databases created before trends existed: add the history table.
@@ -213,7 +224,10 @@ def normalize_intake(form):
         q = key.lower()
         for canon, parts in INTAKE_FIELDS:
             if all(p in q for p in parts):
-                out.setdefault(canon, value)
+                # Sheets carry both form branches as columns; a blank answer
+                # from the other branch must not hide the real one.
+                if canon not in out or (out[canon] in ("", None, []) and value not in ("", None, [])):
+                    out[canon] = value
                 break
         else:
             out.setdefault("unmapped", {})[key] = value
@@ -555,8 +569,17 @@ def _last_week_level(conn, athlete_id, before):
 
 def generate_program(athlete_id, race_id, reason, constraints=None, general_fitness_start_level=None,
                      start_date=None, changed_by="agent"):
-    constraints = constraints or {}
     conn = connect()
+    if constraints is None:
+        # Reuse the settings of this goal's last plan, so a rebuild (weekly review,
+        # repeat week, time trial) never forgets whole-km distances, days/week, etc.
+        prev = conn.execute("SELECT constraints_json FROM program_revision WHERE race_id=? AND constraints_json "
+                            "IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1", (race_id,)).fetchone()
+        constraints = json.loads(prev["constraints_json"]) if prev else {}
+    # Baseline overrides (a review rebuilding from actual running) apply to this
+    # build only; they're never saved as a lasting plan setting.
+    constraints = dict(constraints)
+    overrides = {k: constraints.pop(k) for k in ("baseline_weekly_km", "longest_recent_km") if k in constraints}
     athlete = _get_athlete(conn, athlete_id)
     goal = _row(conn.execute("SELECT * FROM race_target WHERE race_id=? AND athlete_id=?",
                              (race_id, athlete_id)).fetchone())
@@ -592,15 +615,19 @@ def generate_program(athlete_id, race_id, reason, constraints=None, general_fitn
             start_step=level.get("start_step"), start_weekly_min=level.get("start_weekly_min"))
         plan["ok"], plan["time_trial_row_indexes"] = True, []
     else:
-        if intake.get("total_km_4wk") is None or intake.get("longest_run_km") is None:
+        override = overrides.get("baseline_weekly_km") is not None
+        if not override and (intake.get("total_km_4wk") is None or intake.get("longest_run_km") is None):
             raise ToolError("race plan needs the athlete's longest run and total km over the last "
                             "4 weeks; ask them, then resubmit the intake with longest_run_km / total_km_4wk")
         plan = generate_race_plan(
             start.isoformat(), goal["race_date"], goal["distance_km"],
-            baseline_weekly_km=_num(intake["total_km_4wk"]) / 4,
-            longest_recent_km=_num(intake["longest_run_km"]),
+            baseline_weekly_km=(overrides["baseline_weekly_km"] if override
+                                else _num(intake["total_km_4wk"]) / 4),
+            longest_recent_km=(overrides.get("longest_recent_km") or _num(intake.get("longest_run_km")) or 3.0)
+            if override else _num(intake["longest_run_km"]),
             elevation_gain_m=goal.get("elevation_gain_m"),
-            days_per_week=constraints.get("max_days_per_week") or constraints.get("min_days_per_week") or 4,
+            days_per_week=(constraints.get("max_days_per_week") or constraints.get("min_days_per_week")
+                           or int(_num(intake.get("sessions_per_week")) or 4)),
             long_run_day=long_run_day or "Sun", avoid_days=avoid_days,
             whole_number_distances=bool(constraints.get("whole_number_distances")),
             min_session_km=constraints.get("min_session_km") or 3.0,
@@ -615,11 +642,18 @@ def generate_program(athlete_id, race_id, reason, constraints=None, general_fitn
 
     now = _now()
     revision_id = _id("rev")
-    conn.execute("INSERT INTO program_revision VALUES (?,?,?,?,?,?,?)",
-                 (revision_id, athlete_id, race_id, now, reason, changed_by, plan["summary"]))
+    conn.execute("INSERT INTO program_revision (revision_id, athlete_id, race_id, created_at, reason, changed_by, "
+                 "summary, constraints_json) VALUES (?,?,?,?,?,?,?,?)",
+                 (revision_id, athlete_id, race_id, now, reason, changed_by, plan["summary"],
+                  json.dumps(constraints)))
+    # Never create sessions in the past: a rebuild that starts on a Monday
+    # already under way only replaces today onward.
+    first_day = max(start, _today()).isoformat()
+    tt_rows = {id(plan["rows"][i]) for i in plan.get("time_trial_row_indexes", [])}
+    plan["rows"] = [r for r in plan["rows"] if r["session_date"] >= first_day]
     superseded = conn.execute(
         "UPDATE program SET status='superseded' WHERE athlete_id=? AND status='pending' AND session_date>=?",
-        (athlete_id, start.isoformat())).rowcount
+        (athlete_id, first_day)).rowcount
     cancelled = conn.execute(
         "UPDATE checkin_trigger SET status='stale_cancelled' WHERE athlete_id=? AND status='pending' "
         "AND origin='generator'", (athlete_id,)).rowcount
@@ -647,16 +681,23 @@ def generate_program(athlete_id, race_id, reason, constraints=None, general_fitn
         last_by_week[r["week_num"]] = max(last_by_week.get(r["week_num"], ""), r["session_date"])
     gf = goal["goal_type"] == "general_fitness"
     for wk, last in sorted(last_by_week.items()):
-        prompt = (f"Week {wk} review: ask how the week went. Mark any unlogged session with "
-                  f"record_missed_session (or ask for the file). Call get_trends: if tier is "
-                  f"building_baseline, say briefly how long until progress trends start (next_unlock); "
-                  f"otherwise include the 1-3 most useful lines from its feedback, real numbers first. ")
-        prompt += ("Only let next week progress if this one felt comfortable and pain-free; otherwise "
-                   "regenerate at the same level (general_fitness_start_level)." if gf else
-                   "Check signals from get_athlete_summary before confirming next week.")
+        wk_monday = date.fromisoformat(last) - timedelta(days=date.fromisoformat(last).weekday())
+        prompt = (f"Week {wk} check-in (week of {wk_monday.isoformat()}): ask three quick questions -- how did the "
+                  f"week feel (comfortable / hard / too hard), any pain (none / a niggle / pain that changes how "
+                  f"you walk or run), and have you been ill? Ask for files of any runs not yet sent. Call "
+                  f"get_trends and include the 1-3 most useful feedback lines (or, if building_baseline, when "
+                  f"trends start). When they answer, call review_week with week_start={wk_monday.isoformat()} and "
+                  f"their feedback -- it readjusts next week's plan -- then tell them what changes and why. ")
         triggers.append(("scheduled_date", (date.fromisoformat(last) + timedelta(days=1)).isoformat(), None, prompt))
-    for i in plan.get("time_trial_row_indexes", []):
-        triggers.append(("after_program_row", None, row_ids[i],
+        backstop = (f"Backstop for week of {wk_monday.isoformat()}: call review_week with "
+                    f"week_start={wk_monday.isoformat()} and no feedback (data only). If it says already_reviewed, "
+                    f"reply [SILENT]. Otherwise tell the athlete in one or two lines what changed in their plan and "
+                    f"why, and invite them to reply if something's up.")
+        triggers.append(("scheduled_date", (wk_monday + timedelta(days=9)).isoformat(), None, backstop))
+    for r, rid in zip(plan["rows"], row_ids):
+        if id(r) not in tt_rows:
+            continue
+        triggers.append(("after_program_row", None, rid,
                          "Time trial done: get the file, compare it, then reset effort/pace targets as a RANGE "
                          "from this result AND long-run HR drift (never a Riegel-style conversion alone). "
                          "Record the change with write_program_revision."))
@@ -933,8 +974,12 @@ def write_program_revision(athlete_id, race_id, reason, changed_by, summary,
 
     now = _now()
     revision_id = _id("rev")
-    conn.execute("INSERT INTO program_revision VALUES (?,?,?,?,?,?,?)",
-                 (revision_id, athlete_id, race_id, now, reason, changed_by, summary))
+    prev_c = conn.execute("SELECT constraints_json FROM program_revision WHERE race_id=? ORDER BY created_at DESC, "
+                          "rowid DESC LIMIT 1", (race_id,)).fetchone()
+    conn.execute("INSERT INTO program_revision (revision_id, athlete_id, race_id, created_at, reason, changed_by, "
+                 "summary, constraints_json) VALUES (?,?,?,?,?,?,?,?)",
+                 (revision_id, athlete_id, race_id, now, reason, changed_by, summary,
+                  prev_c["constraints_json"] if prev_c else None))
     for pid in affected_program_row_ids:
         conn.execute("UPDATE program SET status='superseded' WHERE program_row_id=?", (pid,))
     added = []
@@ -1186,6 +1231,143 @@ def install_checkin_gate(athlete_id):
             "instruction": "Create the job with your cronjob tool using cronjob_call exactly, from this "
                            "athlete's chat (delivery defaults to origin). The schedule is a cron expression "
                            "(minute hour * * *); change the hour to suit the athlete."}
+
+
+def _week_numbers(conn, athlete_id, ws, gf):
+    we = ws + timedelta(days=6)
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM program WHERE athlete_id=? AND status IN ('pending','done','missed') AND session_type!='rest' "
+        "AND session_date BETWEEN ? AND ?", (athlete_id, ws.isoformat(), we.isoformat()))]
+    runs = [dict(r) for r in conn.execute(
+        "SELECT distance_km, elapsed_time_min, moving_time_min FROM run_log WHERE athlete_id=? AND "
+        "substr(recorded_at,1,10) BETWEEN ? AND ?", (athlete_id, ws.isoformat(), we.isoformat()))]
+    if gf:
+        planned = sum(r["prescribed_duration_min"] or 0 for r in rows)
+        actual = sum((r["elapsed_time_min"] or r["moving_time_min"] or 0) for r in runs)
+    else:
+        planned = sum(r["prescribed_distance_km"] or 0 for r in rows)
+        actual = sum(r["distance_km"] or 0 for r in runs)
+    return {"planned": round(planned, 1), "actual": round(actual, 1), "sessions_planned": len(rows),
+            "sessions_done": sum(1 for r in rows if r["status"] == "done"),
+            "phases": sorted({r["week_phase"] for r in rows if r["week_phase"]}),
+            "longest_planned": max((r["prescribed_distance_km"] or 0 for r in rows), default=0),
+            "longest_actual": max((r["distance_km"] or 0 for r in runs), default=0)}
+
+
+def review_week(athlete_id=None, chat_ref=None, week_start=None, feedback=None, apply=True, force=False):
+    """The weekly readjustment. Reviews a finished week (default: last week)
+    against the plan and, if needed, rebuilds the plan from the next Monday
+    using what the athlete actually did. Runs at every end-of-week check-in
+    (with the athlete's answers) and again as a data-only backstop 3 days
+    later; a week is only ever reviewed once unless force=true.
+    feedback: {"felt": comfortable|hard|too_hard, "pain": none|niggle|gait_changing, "ill": bool}"""
+    conn = connect()
+    if not athlete_id:
+        r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE chat_ref=?", (chat_ref or "",)).fetchone()
+        if not r:
+            raise ToolError("pass athlete_id, or a linked chat_ref")
+        athlete_id = r["athlete_id"]
+    _get_athlete(conn, athlete_id)
+    goal = _active_goal(conn, athlete_id)
+    if not goal:
+        raise ToolError("athlete has no active goal")
+    gf = goal["goal_type"] == "general_fitness"
+    today = _today()
+    ws = date.fromisoformat(week_start) if week_start else today - timedelta(days=today.weekday() + 7)
+    ws -= timedelta(days=ws.weekday())
+    if ws + timedelta(days=6) >= today:
+        raise ToolError(f"the week of {ws} hasn't finished yet; review it from {ws + timedelta(days=7)}")
+    done = conn.execute("SELECT * FROM plan_review WHERE athlete_id=? AND week_start=?",
+                        (athlete_id, ws.isoformat())).fetchone()
+    if done and not force:
+        return {"ok": True, "already_reviewed": True, "review": {**dict(done),
+                "detail": json.loads(done["detail_json"])}}
+    week = _week_numbers(conn, athlete_id, ws, gf)
+    if not week["sessions_planned"]:
+        return {"ok": True, "decision": "no_plan_that_week", "week_start": ws.isoformat()}
+    prev = _week_numbers(conn, athlete_id, ws - timedelta(days=7), gf)
+    prev = prev if prev["sessions_planned"] else None
+    active = [r["signal_name"] for r in conn.execute(
+        "SELECT signal_name, current_streak FROM signal_state WHERE athlete_id=?", (athlete_id,))
+        if r["signal_name"] in analysis.SIGNALS and r["current_streak"] >= analysis.SIGNALS[r["signal_name"]]["threshold"]]
+    next_start = ws + timedelta(days=7) if today <= ws + timedelta(days=10) else _next_monday(today + timedelta(days=1))
+    taper = False
+    if not gf:
+        taper_weeks = len(race_profile(goal["distance_km"])[2])
+        taper = (date.fromisoformat(goal["race_date"]) - next_start).days < 7 * taper_weeks
+    d = plan_review.decide(goal["goal_type"], week, prev, active, feedback, taper_protected=taper)
+
+    def next_week_total():
+        rows = conn.execute("SELECT prescribed_distance_km, prescribed_duration_min FROM program WHERE athlete_id=? "
+                            "AND status='pending' AND session_date BETWEEN ? AND ?",
+                            (athlete_id, next_start.isoformat(), (next_start + timedelta(days=6)).isoformat()))
+        return round(sum((r[1] if gf else r[0]) or 0 for r in rows), 1)
+
+    before = next_week_total()
+    applied, gen_result = None, None
+    if d["decision"] in ("repeat", "hold"):
+        # Repeat/hold means "not harder than this week". If next week is already a
+        # planned easier week at or below that level, leave it alone.
+        ref = prev if (not gf and "cutback" in week["phases"] and prev) else week
+        if before and before <= ref["planned"]:
+            d["reasons"].append("next week is already a planned easier week at or below this level; "
+                                "it stays as planned")
+            apply = False
+    if apply and d["decision"] in ("repeat", "step_back", "hold"):
+        reason = f"weekly review ({ws}): {d['decision']}"
+        if gf:
+            level = _last_week_level(conn, athlete_id, ws + timedelta(days=7))
+            if d["decision"] == "step_back":
+                level = ({"start_step": max(0, level["start_step"] - 1)} if "start_step" in level
+                         else {"start_weekly_min": max(45, round(level["start_weekly_min"] * 0.85))})
+            gen_result = generate_program(athlete_id, goal["race_id"], reason, general_fitness_start_level=level,
+                                          start_date=next_start.isoformat())
+        else:
+            stored = conn.execute("SELECT constraints_json FROM program_revision WHERE race_id=? AND constraints_json "
+                                  "IS NOT NULL ORDER BY created_at DESC, rowid DESC LIMIT 1", (goal["race_id"],)).fetchone()
+            c = json.loads(stored["constraints_json"]) if stored else {}
+            if d["decision"] == "hold":
+                ref = prev if ("cutback" in week["phases"] and prev) else week
+                c.update(baseline_weekly_km=ref["planned"], longest_recent_km=ref["longest_planned"] or None)
+            else:
+                recent = [w["actual"] for w in (week, prev) if w]
+                actual_avg = round(sum(recent) / len(recent), 1)
+                longest = max([week["longest_actual"]] + ([prev["longest_actual"]] if prev else []))
+                if actual_avg < MIN_BASE_WEEKLY_KM:
+                    # Too little running for any race build: rebuild at the most cautious plan the
+                    # race builder allows, and flag the goal as at risk for the coach to discuss.
+                    d["reasons"].append(
+                        f"race goal at risk: only {actual_avg:g} km/week lately, below the {MIN_BASE_WEEKLY_KM} km "
+                        f"minimum for a race build. Plan rebuilt at that minimum; talk to the athlete about "
+                        f"switching to general fitness or a later race.")
+                    d["goal_at_risk"] = True
+                c.update(baseline_weekly_km=max(actual_avg, MIN_BASE_WEEKLY_KM),
+                         longest_recent_km=max(longest, MIN_BASE_LONGEST_KM))
+            gen_result = generate_program(athlete_id, goal["race_id"], reason, constraints=c,
+                                          start_date=next_start.isoformat())
+        if gen_result.get("ok"):
+            applied = gen_result["revision_id"]
+    after = next_week_total()
+    detail = {"week": week, "previous_week": prev, "reasons": d["reasons"], "feedback": feedback,
+              "active_signals": active, "next_week_before": before, "next_week_after": after,
+              "rebuild_refused": None if not gen_result or gen_result.get("ok") else gen_result}
+    conn.execute("INSERT OR REPLACE INTO plan_review VALUES (?,?,?,?,?,?,?,?)",
+                 (_id("rev_w"), athlete_id, ws.isoformat(), _now(), d["decision"], d["completion"],
+                  json.dumps(detail, default=str), applied))
+    conn.commit()
+    unit = "min" if gf else "km"
+    return {"ok": True, "week_start": ws.isoformat(), "decision": d["decision"], "reasons": d["reasons"],
+            "completion": d["completion"], "planned": week["planned"], "actual": week["actual"], "unit": unit,
+            "next_week_start": next_start.isoformat(),
+            "next_week_total_before": before, "next_week_total_after": after,
+            "plan_rebuilt": bool(applied), "revision_id": applied, "goal_at_risk": bool(d.get("goal_at_risk")),
+            "rebuild_refused": detail["rebuild_refused"],
+            "say": {"pause": "Tell them to stop running and get the pain checked; the plan waits until they're cleared.",
+                    "progress": "Well done -- next week steps up as planned.",
+                    "on_track": "On track -- next week continues as planned.",
+                    "repeat": "Next week repeats this level; that's normal and part of the plan.",
+                    "hold": "Next week holds this volume before building again.",
+                    "step_back": "The plan is rebuilt from what they've actually been running."}[d["decision"]]}
 
 
 def _ladder_progress(sessions):
@@ -1477,7 +1659,7 @@ TOOLS = {f.__name__: f for f in [
     get_upcoming_sessions, write_program_revision, schedule_checkin, get_due_checkins,
     check_trigger_staleness, get_athlete_summary, ingest_sheet_rows, link_chat, install_checkin_gate,
     get_trends, get_squad_overview, get_run_history, export_run_file, backfill_history,
-    ingest_sheet_file, sync_telegram_allowlist, get_onboarding_status,
+    ingest_sheet_file, sync_telegram_allowlist, get_onboarding_status, review_week,
 ]}
 
 

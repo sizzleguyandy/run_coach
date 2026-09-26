@@ -81,6 +81,7 @@ their generator uses; the km figures are just extra context.
 
 | Field | Type | Maps to | Notes |
 |---|---|---|---|
+| How many days a week can you run? (3-6) | dropdown 3/4/5/6 | race plans: sessions per week | Race branch athletes. (General-fitness athletes answer their own 2/3 question in Section 2b; both map to the same field.) If blank, race plans use 4. |
 | Preferred long-run day | dropdown (Mon-Sun) | informs program generation | |
 | Days you'd rather avoid running entirely | multi-select | informs program generation | |
 | How should I send you your training file/spreadsheet? | short text | delivery preference, not a DB column | |

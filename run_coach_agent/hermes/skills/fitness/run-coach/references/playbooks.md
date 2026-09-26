@@ -300,27 +300,59 @@ arrive in the run's context.
    - A tool failed and you couldn't do the check-in: put
      `[CRON_FAILURE]` alone on the first line, then say why.
 
-The athlete can reply to the check-in; the job is continuable. When
-they do, handle the reply as a normal chat: record missed sessions,
-use playbook G for general fitness, and so on.
+The athlete can reply to the check-in; the job is continuable. Their
+reply to the weekly check-in goes to playbook G, the weekly review.
 
 Plans come with check-ins built in: an end-of-week review, one after
 each time trial, and the end of a general-fitness block. For anything
 else, use `schedule_checkin`. The gate picks new ones up
 automatically.
 
-### G. General fitness: weekly review and progression
+### G. Weekly review: the plan readjusts every week (race and general fitness)
 
-At each end-of-week check-in, ask how the week felt and whether
-anything hurt. Log any unreported sessions as missed.
+Every plan comes with two automatic events per week:
+- **The check-in** the day after the week's last session. It asks how
+  the week felt, about pain, about illness, and for any missing run
+  files.
+- **A data-only backstop** 3 days later, in case the athlete never
+  replies.
 
-- **Comfortable and pain-free:** nothing to do. Next week's small step
-  up is already planned.
-- **Anything else** (missed sessions, "that was hard", HR cap
-  repeatedly exceeded, niggles): repeat the week. Run
-  `generate_program {"athlete_id": ..., "race_id": ..., "reason": "repeat week N at same level", "start_date": "<next Monday>", "general_fitness_start_level": {"repeat_last_week": true}}`.
-  Tell them repeating a week is normal and part of the plan, not a
-  failure.
+Either way, every finished week is reviewed once and the plan is
+readjusted from what they actually did.
+
+1. When the athlete answers, turn their words into `feedback`:
+   - `felt`: `comfortable` | `hard` | `too_hard`
+   - `pain`: `none` | `niggle` | `gait_changing`
+   - `ill`: true or false
+
+   Only include what they told you.
+2. Log any run files they send first (playbook B). Mark sessions they
+   say they skipped with `record_missed_session`.
+3. Run
+   `review_week {"athlete_id": ..., "week_start": "<Monday of that week>", "feedback": {...}}`.
+   It compares planned with actual, checks the warning signs, decides,
+   and rebuilds the plan from the next Monday when needed:
+
+   | Decision | Meaning |
+   |---|---|
+   | `progress` (general fitness) / `on_track` (race) | Next week continues as planned |
+   | `repeat` (general fitness) / `hold` (race) | Next week stays at this week's level, never harder. It's left alone if it was already an easier week |
+   | `step_back` | Two poor weeks: general fitness drops a step; race rebuilds from what they've actually been running |
+   | `pause` | Pain that changes how they walk or run: no plan change; they stop and get it checked |
+
+   Taper and race week are never rebuilt.
+4. Tell the athlete in 2–3 lines: the decision, the main reason (from
+   `reasons`), and what next week looks like
+   (`next_week_total_after`). A repeat or hold is normal and part of
+   the plan, not a failure.
+5. If `goal_at_risk` is true (a race athlete running far too little
+   for a race build), be honest. Offer switching to general fitness or
+   a later race (playbook I), and let the owner know.
+6. If it says `already_reviewed`, the week has been done (e.g. by the
+   backstop). Just discuss what they said; don't review again.
+
+Don't regenerate plans by hand for weekly progression; `review_week`
+does it consistently. Other general-fitness points:
 - **They want to go faster or add intervals:** say no, and explain
   why. If they really want a performance goal, offer to switch to a
   race goal (playbook I).

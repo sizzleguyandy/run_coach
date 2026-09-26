@@ -42,6 +42,30 @@ gateway such as Telegram.
 | `scripts/run-coach-backup.py` | Cron script (no-agent) | Daily backup of both databases, keeps 30 of each |
 | `scripts/run-coach-due-<id>.py` | Cron pre-run gate | Generated per athlete; only wakes the agent when a check-in is due |
 
+## Plans that readjust every week
+
+The first plan is built from the form:
+- goal, race date and distance
+- current running
+- days per week and days to avoid
+- preferred long-run day
+- course hills
+- heart-rate zones
+
+After that, **every finished week is reviewed** and the plan is
+readjusted from what the athlete actually did (`review_week`):
+- **progress / on track:** the plan continues as scheduled.
+- **repeat / hold:** next week stays at this level, never harder.
+- **step back:** after two poor weeks, rebuild from what they're
+  really running. A race goal that's slipping is flagged.
+- **pause:** pain that changes how they walk or run; they get it
+  checked first.
+
+It runs when the athlete answers the weekly check-in, and as a
+data-only backstop 3 days later if they don't. The taper and race date
+never move, and plan settings (days per week, whole-km distances…)
+survive every rebuild.
+
 ## Run history
 
 Every run file an athlete sends is recorded permanently in `history.db`:
@@ -138,7 +162,7 @@ Created by the agent during setup and onboarding, following
 
 ```bash
 cd hermes/skills/fitness/run-coach/scripts
-python3 -m unittest discover -s tests        # 20 tests (incl. Sheet onboarding, a 9-week trend simulation, history checks)
+python3 -m unittest discover -s tests        # 22 tests (incl. full athlete lifecycles, Sheet onboarding, trends, history)
 python3 general_fitness.py                   # preview a general-fitness block
 python3 race_plan.py                         # preview a race build
 ```

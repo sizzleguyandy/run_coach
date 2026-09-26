@@ -123,7 +123,8 @@ CREATE TABLE program_revision (
     created_at            TEXT NOT NULL,
     reason               TEXT NOT NULL,          -- "time trial result", "athlete requested whole-km distances", "race date changed"
     changed_by           TEXT NOT NULL,          -- 'agent' | 'athlete_request'
-    summary              TEXT                    -- short human-readable diff summary
+    summary              TEXT,                   -- short human-readable diff summary
+    constraints_json     TEXT                    -- plan settings used (days/week, whole km, avoid days...), reused on every rebuild
 );
 
 -- ============================================================
@@ -206,6 +207,24 @@ CREATE TABLE checkin_trigger (
     status                    TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'fired' | 'stale_cancelled'
     origin                    TEXT NOT NULL DEFAULT 'agent',    -- 'generator' (auto-created with a plan; cancelled when the plan is regenerated) | 'agent'
     created_at                TEXT NOT NULL
+);
+
+-- ============================================================
+-- PLAN_REVIEW — the weekly readjustment log. One row per athlete per
+-- reviewed week: what was planned vs done, the decision, and the plan
+-- revision it produced (if any). Makes the review idempotent and lets
+-- the coach explain every change later.
+-- ============================================================
+CREATE TABLE plan_review (
+    review_id             TEXT PRIMARY KEY,
+    athlete_id            TEXT NOT NULL REFERENCES athlete_profile(athlete_id),
+    week_start            TEXT NOT NULL,          -- Monday of the reviewed week
+    reviewed_at           TEXT NOT NULL,
+    decision              TEXT NOT NULL,          -- progress | repeat | step_back | on_track | hold | pause
+    completion            REAL,
+    detail_json           TEXT NOT NULL,          -- planned/actual, reasons, feedback
+    applied_revision_id   TEXT,                   -- program_revision written by this review, if any
+    UNIQUE (athlete_id, week_start)
 );
 
 -- ============================================================

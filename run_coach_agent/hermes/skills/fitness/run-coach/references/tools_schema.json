@@ -239,7 +239,7 @@
       "type": "function",
       "function": {
         "name": "generate_program",
-        "description": "Build the plan with deterministic code and write it as a new program_revision (superseding pending future sessions and cancelling the old plan's auto check-ins). goal_type='race' -> race_plan.py: max +10%/week, cutback every 4th week, growth onto the long run, 2 time trials, hill repeats on hilly courses, taper, NO race pace. goal_type='general_fitness' -> general_fitness.py: minutes not km, conversational effort only, walk/run ladder if they can't run 20 min non-stop, else max +5%/week (cap +10 min), cutback every 3rd week, 12-week block. Also creates check-ins: end of every week, after each time trial, end of a general-fitness block. Returns ok:false with a reason + suggestion if the athlete isn't ready (low base, not enough weeks, medical clearance missing) -- relay that honestly; don't work around it.",
+        "description": "Build the plan with deterministic code and write it as a new program_revision (superseding pending future sessions and cancelling the old plan's auto check-ins). goal_type='race' -> race_plan.py: max +10%/week, cutback every 4th week, growth onto the long run, 2 time trials, hill repeats on hilly courses, taper, NO race pace. goal_type='general_fitness' -> general_fitness.py: minutes not km, conversational effort only, walk/run ladder if they can't run 20 min non-stop, else max +5%/week (cap +10 min), cutback every 3rd week, 12-week block. Also creates check-ins: end of every week, after each time trial, end of a general-fitness block. Returns ok:false with a reason + suggestion if the athlete isn't ready (low base, not enough weeks, medical clearance missing) -- relay that honestly; don't work around it. Constraints are saved with the plan and reused automatically when omitted (weekly reviews, repeats), so whole-km distances, days/week and avoid days survive every rebuild. Race days/week defaults to the athlete's form answer. Never creates sessions dated before today.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -406,6 +406,62 @@
         "parameters": {
           "type": "object",
           "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "review_week",
+        "description": "The weekly readjustment. Reviews a finished week (default: last week) against the plan -- volume done, warning signs, and the athlete's feedback -- and decides: progress/on_track (continue), repeat/hold (next week not harder), step_back (two poor weeks: rebuild from actual running), pause (gait-changing pain). Rebuilds the plan from the next Monday when needed, keeping the plan's saved settings; taper and race date never move. Each week is reviewed once (already_reviewed otherwise). Returns the decision, reasons, next week's total before/after, and goal_at_risk.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "chat_ref": {
+              "type": "string"
+            },
+            "week_start": {
+              "type": "string",
+              "description": "Monday of the week to review; default last week."
+            },
+            "feedback": {
+              "type": "object",
+              "properties": {
+                "felt": {
+                  "type": "string",
+                  "enum": [
+                    "comfortable",
+                    "hard",
+                    "too_hard"
+                  ]
+                },
+                "pain": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "niggle",
+                    "gait_changing"
+                  ]
+                },
+                "ill": {
+                  "type": "boolean"
+                }
+              },
+              "description": "Only what the athlete actually said; omit for a data-only review."
+            },
+            "apply": {
+              "type": "boolean",
+              "description": "Default true. false = preview the decision without changing the plan."
+            },
+            "force": {
+              "type": "boolean",
+              "description": "Re-review a week already reviewed (e.g. the athlete sent late files)."
+            }
+          },
           "required": []
         }
       }

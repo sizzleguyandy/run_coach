@@ -70,6 +70,7 @@ Data lives in `$HERMES_HOME/run_coach/`, created on first use:
 | `get_run_history` | Every run the athlete has ever uploaded, from history.db (all-time totals, failed uploads) |
 | `export_run_file` | Recover the original .fit/.gpx exactly as uploaded |
 | `backfill_history` | After upgrading an older install: copy earlier runs into history.db |
+| `review_week` | The weekly readjustment: planned vs actual + feedback → progress / repeat / hold / step back / pause; rebuilds next week onward |
 | `get_trends` | Progress over the athlete's whole history (needs 2+ weeks; more unlocks at 4 and 8 weeks) |
 | `get_squad_overview` | Owner only: every athlete's trend direction, consistency and warnings in one table |
 | `write_program_revision` | Move or replace sessions (`dry_run` first) |
@@ -135,10 +136,11 @@ event. The coaching rules and the reasons behind them are in
      start (`next_unlock`). Don't improvise trends from a handful of
      runs.
    - The owner asking about everyone → `get_squad_overview`.
-9. **General-fitness week review** (playbook G): progress only after a
-   comfortable, pain-free week. Otherwise
-   `generate_program` with `"general_fitness_start_level": {"repeat_last_week": true}`
-   and `start_date` set to next Monday.
+9. **Weekly review** (playbook G, every athlete, every week): when they
+   answer the check-in, run `review_week` with their feedback. It
+   readjusts the plan from what they actually did. A data-only
+   backstop runs 3 days later if they don't reply. Tell them the
+   decision and what next week looks like.
 
 ## Non-negotiables
 

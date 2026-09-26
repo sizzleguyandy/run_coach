@@ -193,6 +193,29 @@ TONE AND HONESTY
   the most useful thing you can tell them.
 ```
 
+## 2a. Weekly readjustment
+
+A plan built from an intake form is a first guess. After every week the
+plan is reviewed against what actually happened, and readjusted
+(`review_week`, rules in `plan_review.py`):
+- **Data first:** the share of planned volume done, this week and last,
+  and any warning sign that reached its threshold.
+- **Then the athlete:** how it felt, pain, illness.
+- **Progress is earned:**
+  - General fitness moves up only after 90%+ done, felt comfortable,
+    no pain.
+  - A race build keeps growing only at 80%+ done with no warning
+    signs.
+  - Otherwise the next week repeats or holds the level. It's never
+    harder, and a planned easier week is left alone.
+- **Two poor weeks** step back to what the athlete actually does. A
+  race build below the minimum base is rebuilt at that minimum and
+  flagged as at risk, rather than left pretending.
+- **Pain that changes gait** pauses everything.
+- **The taper and race date never move.**
+- **Plan settings survive every rebuild.** Days per week, whole-km
+  distances and avoid days are saved with each plan version.
+
 ## 2b. Trends and history
 
 Every run, planned session (done, missed or moved), plan revision and
