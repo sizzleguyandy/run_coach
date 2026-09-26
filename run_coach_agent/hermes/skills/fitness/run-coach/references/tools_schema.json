@@ -118,7 +118,7 @@
       "type": "function",
       "function": {
         "name": "install_checkin_gate",
-        "description": "Write this athlete's cron gate script into $HERMES_HOME/scripts and return the exact cronjob call to create their daily check-in job. Call it FROM THE ATHLETE'S CHAT (delivery defaults to origin), then create the job with cronjob_manage using cronjob_call exactly.",
+        "description": "Write this athlete's cron gate script into $HERMES_HOME/scripts and return the exact cronjob call to create their daily check-in job. Call it FROM THE ATHLETE'S CHAT (delivery defaults to origin), then create the job with cronjob using cronjob_call exactly.",
         "parameters": {
           "type": "object",
           "properties": {

@@ -100,9 +100,14 @@ Questions are matched by their **wording**. Keep the question text as
 written above. If you reword one, run a test submission and check the
 `normalized` block that `ingest_intake_form` returns.
 
-Add one line to the form's confirmation message:
-*"Next, message the coach bot at <bot link> so it can send you your
-plan."* That's how the athlete's chat gets linked to their response.
+Add this to the form's confirmation message:
+*"Next, message the coach bot at <bot link>. It will reply with a
+pairing code. Send that code to your coach so they can let you in,
+and the bot will then send you your plan."*
+
+Hermes only lets approved Telegram users talk to a bot; the owner
+approves each athlete's pairing code. After that, the bot links their
+chat to their form response by email.
 
 ## What the agent does with this on submission
 

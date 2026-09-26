@@ -35,7 +35,9 @@ class RunHistory(unittest.TestCase):
         return out
 
     def hdb(self):
-        return sqlite3.connect(os.path.join(self.tmp.name, "history.db"))
+        conn = sqlite3.connect(os.path.join(self.tmp.name, "history.db"))
+        self.addCleanup(conn.close)          # Windows can't delete an open DB file
+        return conn
 
     def test_every_upload_recorded_and_file_recoverable(self):
         run = self.call("parse_run_file", file_path=GPX, athlete_id=self.aid, athlete_notes="felt good")

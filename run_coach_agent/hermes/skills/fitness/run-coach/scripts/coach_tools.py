@@ -72,8 +72,24 @@ def db_path():
     return os.path.join(KIT_DIR, "coach.db")
 
 
+# Every connection a tool opens is closed when the outermost tool call
+# returns. Windows locks open SQLite files, so leaked connections break
+# backups, temp-dir cleanup and file moves there.
+_OPEN = []
+_DEPTH = [0]
+
+
+def _track(conn):
+    _OPEN.append(conn)
+    return conn
+
+
+def _hconnect():
+    return _track(history.connect(db_path()))
+
+
 def connect():
-    conn = sqlite3.connect(db_path())
+    conn = _track(sqlite3.connect(db_path()))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     if not conn.execute("SELECT name FROM sqlite_master WHERE name='athlete_profile'").fetchone():
@@ -263,7 +279,7 @@ def _goal_type(norm):
 
 def init_db():
     conn = connect()
-    history.connect(db_path()).close()
+    _hconnect()
     return {"ok": True, "db_path": db_path(), "history_db_path": history.history_path(db_path()),
             "tables": [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]}
 
@@ -604,7 +620,7 @@ def parse_run_file(file_path, athlete_id, file_format="auto", athlete_notes=None
     athlete = _get_athlete(conn, athlete_id)
     if not os.path.exists(file_path):
         raise ToolError(f"file not found: {file_path}")
-    hconn = history.connect(db_path())
+    hconn = _hconnect()
     name, sha = os.path.basename(file_path), history.file_sha256(file_path)
     fmt = file_format
     if fmt == "auto":
@@ -673,7 +689,7 @@ def match_run_to_program(athlete_id, run_log_id=None, run_recorded_at=None, run_
         (athlete_id, (d - timedelta(days=1)).isoformat(), (d + timedelta(days=1)).isoformat()))]
     match = analysis.match_run_to_program_row(run_recorded_at, run_distance_km, candidates)
     if run_log_id:
-        hconn = history.connect(db_path())
+        hconn = _hconnect()
         hid = history.history_id_for(hconn, run_log_id)
         if hid:
             history.add_event(hconn, hid, "matched" if match else "unmatched",
@@ -724,7 +740,7 @@ def compare_run_to_program(run_log_id, program_row_id=None):
                               run_log_id=run_log_id, program_row_id=program_row_id)
         signals[name] = new
     conn.commit()
-    hconn = history.connect(db_path())
+    hconn = _hconnect()
     hid = history.history_id_for(hconn, run_log_id)
     if hid:
         history.add_event(hconn, hid, "compared", {
@@ -1067,10 +1083,11 @@ def install_checkin_gate(athlete_id):
               f"check-in turned out stale or needs no message, reply with only [SILENT].")
     return {"ok": True, "gate_script": os.path.join(scripts, name),
             "cronjob_call": {"action": "create", "name": f"run-coach checkins {athlete_id}",
-                             "schedule": "every day at 7am", "script": name, "skill": "run-coach",
+                             "schedule": "0 7 * * *", "script": name, "skills": ["run-coach"],
                              "workdir": workdir, "attach_to_session": True, "prompt": prompt},
-            "instruction": "Create the job with your cronjob_manage tool using cronjob_call exactly, from this "
-                           "athlete's chat (delivery defaults to origin). Adjust the time to suit the athlete."}
+            "instruction": "Create the job with your cronjob tool using cronjob_call exactly, from this "
+                           "athlete's chat (delivery defaults to origin). The schedule is a cron expression "
+                           "(minute hour * * *); change the hour to suit the athlete."}
 
 
 def _ladder_progress(sessions):
@@ -1167,7 +1184,7 @@ def get_run_history(athlete_id=None, chat_ref=None, start_date=None, end_date=No
         if not r:
             raise ToolError("pass athlete_id, or a linked chat_ref")
         athlete_id = r["athlete_id"]
-    hconn = history.connect(db_path())
+    hconn = _hconnect()
     q = ("SELECT history_id, recorded_at, logged_at, source_file_name, source_format, distance_km, "
          "elapsed_time_min, moving_time_min, avg_hr, max_hr, elevation_gain_m, avg_pace_sec_per_km, "
          "hr_drift_delta, sample_count, parser_notes FROM runs WHERE athlete_id=?")
@@ -1197,7 +1214,7 @@ def get_run_history(athlete_id=None, chat_ref=None, start_date=None, end_date=No
 def export_run_file(history_id, out_dir=None):
     """Write the original uploaded .fit/.gpx back out from history.db (e.g. to
     send it back to the athlete or re-parse it)."""
-    hconn = history.connect(db_path())
+    hconn = _hconnect()
     r = hconn.execute("SELECT source_file_name, file_blob_zlib, file_sha256 FROM runs WHERE history_id=?",
                       (history_id,)).fetchone()
     if not r:
@@ -1219,7 +1236,7 @@ def backfill_history():
     weren't kept then). Safe to run any time; also reports whether the two
     databases agree."""
     conn = connect()
-    hconn = history.connect(db_path())
+    hconn = _hconnect()
     added = 0
     for r in conn.execute("SELECT r.*, a.name, a.email FROM run_log r JOIN athlete_profile a USING(athlete_id)"):
         r = dict(r)
@@ -1262,10 +1279,19 @@ def call_tool(name, args=None):
     """Single entry point for function-calling platforms."""
     if name not in TOOLS:
         return {"ok": False, "error": f"unknown tool {name!r}", "tools": sorted(TOOLS)}
+    _DEPTH[0] += 1
     try:
         return TOOLS[name](**(args or {}))
     except (ToolError, ValueError, TypeError, KeyError, OSError, sqlite3.Error) as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}" if not isinstance(e, ToolError) else str(e)}
+    finally:
+        _DEPTH[0] -= 1
+        if _DEPTH[0] == 0:
+            while _OPEN:
+                try:
+                    _OPEN.pop().close()
+                except sqlite3.Error:
+                    pass
 
 
 def main(argv):

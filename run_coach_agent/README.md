@@ -76,6 +76,21 @@ Weekly check-ins include the 1–3 most useful lines automatically.
 `get_squad_overview` gives you, the owner, one table across all
 athletes, with a "needs attention" list.
 
+## Telegram
+
+The coach profile gets its **own** Telegram bot; a bot token can belong
+to one profile only. It's served by the same (default, multiplexing)
+gateway and uses the default profile's model. `BOB_TELEGRAM_SETUP.md`
+walks your Hermes agent through it.
+
+Athletes aren't put on the allowlist. They message the bot, get a
+pairing code, and the owner approves it with
+`hermes -p <profile> pairing approve telegram <CODE>`.
+
+Give Google access to the coach profile for **Sheets only**, and don't
+copy another profile's token: the coach talks to people you don't
+know.
+
 ## Scheduled jobs
 
 Created by the agent during setup and onboarding, following

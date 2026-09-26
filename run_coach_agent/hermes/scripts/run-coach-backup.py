@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Run-coach database backup, for a no-agent cron job:
-#   hermes cron create "every day at 2am" --no-agent --script run-coach-backup.py --name run-coach-backup
+#   hermes -p <profile> cron create "0 2 * * *" --no-agent --script run-coach-backup.py --name run-coach-backup
 # Backs up BOTH databases in $HERMES_HOME/run_coach/:
 #   coach.db    live coaching state (plans, sessions, signals)
 #   history.db  permanent record of every run, incl. original files

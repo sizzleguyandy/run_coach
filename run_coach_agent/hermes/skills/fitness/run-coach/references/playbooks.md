@@ -23,10 +23,22 @@ athlete.
 1. Run the tests:
    `cd ${HERMES_HOME:-$HOME/.hermes}/skills/fitness/run-coach/scripts && python3 -m unittest discover -s tests`.
    It must print `OK`.
-2. Set up intake from the form. The Google Form's responses go to a
+2. Check the coach's own Telegram bot. This profile must have its own
+   `TELEGRAM_BOT_TOKEN` in its `.env`. A bot belongs to one profile
+   only. The owner's Telegram user ID goes in
+   `TELEGRAM_ALLOWED_USERS`, which makes them admin. Athletes are
+   **not** added there; they get in through pairing (step 6).
+3. Set up intake from the form. The Google Form's responses go to a
    Sheet ("Responses" tab → link to Sheets). Ask the owner for the
-   Sheet ID and the tab name (usually `Form responses 1`), and make
-   sure the `google-workspace` skill is authorised for Sheets. Then
+   Sheet ID and the tab name (usually `Form responses 1`). The
+   `google-workspace` skill must be authorised **in this profile, for
+   Sheets only**:
+   - Run its setup here with `--services sheets`.
+   - Don't copy another profile's Google token. It would carry that
+     profile's wider scopes (Gmail, Drive…) into a bot that strangers
+     message.
+
+   Then
    create the poller from the **owner's** chat, so summaries go to
    them:
    ```
@@ -35,13 +47,25 @@ athlete.
            workdir="<HERMES_HOME>/run_coach",
            prompt="Read every row of Sheet <SHEET_ID> tab '<TAB>' with google-workspace (sheets get). Pass the full 2-D values array (header row first) to run-coach ingest_sheet_rows. Rows already ingested are skipped automatically. For each newly ingested athlete, give the owner one line: name, goal type, and any next_steps that need the athlete (medical clearance, missing info). If nothing new was ingested, reply with only [SILENT].")
    ```
-3. Set up the database backup, covering both `coach.db` and
+4. Set up the database backup, covering both `coach.db` and
    `history.db` (no LLM involved):
-   `hermes cron create "every day at 2am" --no-agent --script run-coach-backup.py --name run-coach-backup`
-4. Upgrading an install that already has runs logged? Run
+   `hermes -p <this profile> cron create "0 2 * * *" --no-agent --script run-coach-backup.py --name run-coach-backup`
+   (or, from inside this profile's chat, the `cronjob` tool with
+   `no_agent=True`).
+5. Upgrading an install that already has runs logged? Run
    `$RC backfill_history '{}'` once and check that `in_sync` is true.
-5. Give the owner the bot's link to share with athletes, along with the
-   form link. Athletes fill in the form first, then message the bot.
+6. Explain athlete access to the owner. Hermes turns away unknown
+   Telegram users, so each athlete joins through pairing:
+   1. They fill in the form, then message the bot.
+   2. The bot replies with a pairing code.
+   3. They send that code to the owner.
+   4. The owner approves it with
+      `hermes -p <this profile> pairing approve telegram <CODE>`.
+      Codes expire after 1 hour. `pairing list` shows pending and
+      approved users, and `pairing revoke telegram <user id>` removes
+      one.
+7. Give the owner the bot's link to share with athletes, along with
+   the form link.
 
 ## 1. Playbooks
 
@@ -51,7 +75,9 @@ athlete.
    a single response pasted in chat, use:
    `$RC ingest_intake_form '{"form_response_json": {...keyed by question text...}}'`
    (see `examples/intake_*.json` for the shape).
-2. Link the athlete. When they first message you, run
+2. Link the athlete. They can only reach you after the owner has
+   approved their pairing code (section 0, step 6). When they first
+   message you, run
    `get_athlete_summary {"chat_ref": ...}`. If it's not linked, ask for
    their form email, then run
    `link_chat {"email": ..., "chat_ref": ...}`.
@@ -78,7 +104,7 @@ athlete.
 4. `generate_program {"athlete_id": ..., "race_id": ..., "reason": "initial plan from intake", "constraints": {...}}`
 5. Check-ins, **in the athlete's chat**: run
    `install_checkin_gate {"athlete_id": ...}`, then call
-   `cronjob_manage` with the returned `cronjob_call`, exactly as given.
+   `cronjob` with the returned `cronjob_call`, exactly as given.
    Delivery then defaults to this chat.
 6. Reply to the athlete with:
    - the `summary`
@@ -97,8 +123,10 @@ block first.
 
 ### B. The athlete sends a run file (.fit / .gpx)
 
-The gateway saves the attachment and tells you its path. If it
-doesn't, save it under `$HERMES_HOME/run_coach/uploads/`.
+The gateway saves the attachment and tells you its path in the
+message. It goes under `$HERMES_HOME/cache/documents/`, or on Windows
+`%LOCALAPPDATA%\hermes\cache\documents\`. If no path arrives, save
+the file under `$HERMES_HOME/run_coach/uploads/`.
 
 1. `parse_run_file {"file_path": ..., "athlete_id": ...}`. If
    `data_quality_warning` is set, say what's missing. If `duplicate`
@@ -267,7 +295,7 @@ The owner can see everything. Athletes only ever see their own data.
 ### K. An athlete leaves or pauses
 
 Pause or remove their `run-coach checkins <athlete_id>` job with
-`cronjob_manage`. Keep their data unless the owner explicitly asks for
+`cronjob`. Keep their data unless the owner explicitly asks for
 it to be deleted.
 
 ## 2. Non-negotiables (quick reference)

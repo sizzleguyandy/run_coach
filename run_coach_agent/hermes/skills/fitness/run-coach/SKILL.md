@@ -4,7 +4,7 @@ description: "Running coach: intake, plans, run files, check-ins."
 version: 1.0.0
 author: run_coach
 license: MIT
-platforms: [linux, macos]
+platforms: [linux, macos, windows]
 metadata:
   hermes:
     tags: [running, coaching, training-plan, fitness, fit, gpx]
@@ -98,7 +98,7 @@ event. The coaching rules and the reasons behind them are in
 
    Then `generate_program`. When the athlete is linked, run
    `install_checkin_gate` in their chat and create the cron job it
-   returns with `cronjob_manage`.
+   returns with `cronjob`.
 3. **Run file** (playbook B): the gateway saves attachments and gives
    you a path. `parse_run_file` → `match_run_to_program` (if there's no
    match, ask what the run was) → `compare_run_to_program`. Reply with
@@ -168,5 +168,5 @@ event. The coaching rules and the reasons behind them are in
   must print `OK`.
 - After intake: `get_athlete_summary` shows the active goal, a
   `current_revision`, and sessions in `this_week` or `next_week`.
-- After `install_checkin_gate`: `cronjob_manage` list shows
+- After `install_checkin_gate`: `cronjob` list shows
   `run-coach checkins <athlete_id>` with the `run-coach` skill attached.

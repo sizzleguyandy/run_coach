@@ -213,7 +213,7 @@ class HermesIntegration(ToolTestCase):
         self.call("generate_program", athlete_id=aid, race_id=gid, reason="initial")
         gate = self.call("install_checkin_gate", athlete_id=aid)
         self.assertTrue(gate["gate_script"].startswith(os.environ["HERMES_HOME"]))
-        self.assertEqual(gate["cronjob_call"]["skill"], "run-coach")
+        self.assertEqual(gate["cronjob_call"]["skills"], ["run-coach"])
 
         def run_gate(today):
             env = {**os.environ, "COACH_TODAY": today}
