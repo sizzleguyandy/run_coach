@@ -304,6 +304,69 @@
     {
       "type": "function",
       "function": {
+        "name": "get_run_history",
+        "description": "Every run the athlete has ever uploaded, from the permanent history.db, newest first: summary numbers, what each was matched to, all-time totals and failed-upload count. Includes runs from replaced plans.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "chat_ref": {
+              "type": "string"
+            },
+            "start_date": {
+              "type": "string"
+            },
+            "end_date": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "Default 200."
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "export_run_file",
+        "description": "Write the original uploaded .fit/.gpx back out of history.db (checksum-verified), e.g. to send it back to the athlete with MEDIA:<path>.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "history_id": {
+              "type": "string"
+            },
+            "out_dir": {
+              "type": "string",
+              "description": "Default $HERMES_HOME/run_coach/exports."
+            }
+          },
+          "required": [
+            "history_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "backfill_history",
+        "description": "One-off after upgrading an older install: copies every coach.db run not yet in history.db (summaries only; original files weren't kept before). Idempotent; reports in_sync.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "get_trends",
         "description": "Progress trends from the athlete's whole history: weekly totals vs plan, consistency and streaks, aerobic fitness (easy pace at the same heart rate), long-run HR drift, most-missed weekday, time-trial progression, walk/run step progress, block comparison, warning-sign history. Needs 14 days and 4 runs (tier building_baseline until then, with next_unlock saying what's missing); more metrics unlock at 4 and 8 weeks. Relay the evidence-backed `feedback` lines; never compute or claim a trend yourself.",
         "parameters": {
@@ -340,7 +403,7 @@
       "type": "function",
       "function": {
         "name": "parse_run_file",
-        "description": "Parse an uploaded .fit or .gpx file and log it in run_log (duplicates are detected, not re-inserted). Pure code -- ALWAYS use this rather than estimating a run's numbers. If data_quality_warning is set, tell the athlete what's missing.",
+        "description": "Parse an uploaded .fit or .gpx file, log it in coach.db, and record it permanently in history.db (original file, all samples; failed and duplicate uploads are recorded too) (duplicates are detected, not re-inserted). Pure code -- ALWAYS use this rather than estimating a run's numbers. If data_quality_warning is set, tell the athlete what's missing.",
         "parameters": {
           "type": "object",
           "properties": {

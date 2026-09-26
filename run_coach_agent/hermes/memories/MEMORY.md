@@ -1,4 +1,4 @@
-Run-coach setup: all athlete data lives in SQLite at $HERMES_HOME/run_coach/coach.db and is only read or changed through the run-coach skill's coach_tools.py. Never raw SQL, never hand-edit the DB.
+Run-coach setup: athlete data lives in $HERMES_HOME/run_coach/coach.db (live plans) and history.db (permanent, append-only record of every run), only via the run-coach skill's coach_tools.py. Never raw SQL.
 §
 Athlete facts (health, injuries, plans, runs, HR zones) belong in the coach DB via run-coach tools, never in MEMORY.md/USER.md, which are shared across all chats.
 §

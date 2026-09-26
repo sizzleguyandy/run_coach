@@ -237,8 +237,8 @@ class HermesIntegration(ToolTestCase):
             g.write(f.read())
         res = subprocess.run([sys.executable, dst], env=os.environ.copy(), capture_output=True, text=True)
         self.assertEqual((res.returncode, res.stdout), (0, ""))
-        backups = os.listdir(os.path.join(os.path.dirname(os.environ["COACH_DB"]), "backups"))
-        self.assertEqual(len(backups), 1)
+        backups = sorted(os.listdir(os.path.join(os.path.dirname(os.environ["COACH_DB"]), "backups")))
+        self.assertEqual([b.split("-")[0] for b in backups], ["coach", "history"])
 
 
 class SignalFixes(unittest.TestCase):

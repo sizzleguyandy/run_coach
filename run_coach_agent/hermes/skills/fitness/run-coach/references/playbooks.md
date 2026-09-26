@@ -35,9 +35,12 @@ athlete.
            workdir="<HERMES_HOME>/run_coach",
            prompt="Read every row of Sheet <SHEET_ID> tab '<TAB>' with google-workspace (sheets get). Pass the full 2-D values array (header row first) to run-coach ingest_sheet_rows. Rows already ingested are skipped automatically. For each newly ingested athlete, give the owner one line: name, goal type, and any next_steps that need the athlete (medical clearance, missing info). If nothing new was ingested, reply with only [SILENT].")
    ```
-3. Set up the database backup (no LLM involved):
+3. Set up the database backup, covering both `coach.db` and
+   `history.db` (no LLM involved):
    `hermes cron create "every day at 2am" --no-agent --script run-coach-backup.py --name run-coach-backup`
-4. Give the owner the bot's link to share with athletes, along with the
+4. Upgrading an install that already has runs logged? Run
+   `$RC backfill_history '{}'` once and check that `in_sync` is true.
+5. Give the owner the bot's link to share with athletes, along with the
    form link. Athletes fill in the form first, then message the bot.
 
 ## 1. Playbooks
@@ -116,6 +119,20 @@ doesn't, save it under `$HERMES_HOME/run_coach/uploads/`.
 
 `get_athlete_summary {"chat_ref": ...}` (or
 `get_upcoming_sessions`), and answer only from what it returns.
+
+### C1. "Show me all my runs" / run history / "send me that file back"
+
+- `get_run_history {"chat_ref": ...}` (optionally `start_date`,
+  `end_date`). It returns every run ever uploaded, newest first, with
+  all-time totals, what each run was matched to, and how many uploads
+  failed. It includes runs from old and replaced plans.
+- To send an original file back: `export_run_file {"history_id": ...}`,
+  then attach the returned `path` in your reply
+  (`MEDIA:<path>`).
+- history.db is the permanent record. Never try to change or delete
+  runs in it: it refuses, by design. If an upload was wrong (e.g.
+  someone else's run), say so in chat. The coach's future analysis can
+  ignore it, but the record stays.
 
 ### C2. Progress and trends ("am I getting fitter?", weekly reviews)
 

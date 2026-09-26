@@ -5,8 +5,11 @@ directory. Cron jobs created by the `run-coach` skill run here, so this
 file is loaded into their context.
 
 ## Layout
-- `coach.db`: the SQLite database. Created on first use. **Back it up;**
-  it is every athlete's history.
+- `coach.db`: live coaching state (plans, sessions, signals). Created
+  on first use.
+- `history.db`: the permanent record of every run: original files,
+  every data point, every upload attempt. Append-only; it refuses
+  changes and deletions. **Both databases are backed up daily.**
 - `uploads/`: save athletes' run files (.fit/.gpx) here before
   parsing, if the gateway hasn't already saved them somewhere.
 - `backups/`: daily copies of the database, written by the
@@ -25,7 +28,7 @@ $RC get_squad_overview '{}'                   # owner only
 ```
 
 ## Rules for work in this folder
-- Only change `coach.db` through `coach_tools.py`. No raw SQL, no
+- Only change `coach.db` and `history.db` through `coach_tools.py`. No raw SQL, no
   editing rows by hand, no deleting the file.
 - Plans come from `generate_program` and are never written by hand.
   Every change to future sessions goes through `write_program_revision`

@@ -42,8 +42,14 @@ $RC --list
 $RC <tool> '<json>'            # or: $RC <tool> @/path/args.json
 ```
 
-The data lives in `$HERMES_HOME/run_coach/coach.db`, which is created
-on first use. Full parameter definitions are in
+Data lives in `$HERMES_HOME/run_coach/`, created on first use:
+- `coach.db`: live coaching state (plans, sessions, signals).
+- `history.db`: the **permanent record of every run**. It holds the
+  original file, every data point, every upload attempt, and what each
+  run was matched to. It can only be added to, never changed or
+  deleted.
+
+`parse_run_file` writes to both automatically. Full parameter definitions are in
 `references/tools_schema.json`.
 
 | Tool | Use it to |
@@ -58,6 +64,9 @@ on first use. Full parameter definitions are in
 | `parse_run_file` → `match_run_to_program` → `compare_run_to_program` | Log and assess a run |
 | `record_missed_session` | Mark a session missed |
 | `get_upcoming_sessions` | Sessions in a date range |
+| `get_run_history` | Every run the athlete has ever uploaded, from history.db (all-time totals, failed uploads) |
+| `export_run_file` | Recover the original .fit/.gpx exactly as uploaded |
+| `backfill_history` | After upgrading an older install: copy earlier runs into history.db |
 | `get_trends` | Progress over the athlete's whole history (needs 2+ weeks; more unlocks at 4 and 8 weeks) |
 | `get_squad_overview` | Owner only: every athlete's trend direction, consistency and warnings in one table |
 | `write_program_revision` | Move or replace sessions (`dry_run` first) |

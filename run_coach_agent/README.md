@@ -34,12 +34,26 @@ gateway such as Telegram.
 | `memories/USER.md` | Agent-maintained profile of **you** | Not shipped. The agent fills it in as it learns about the owner |
 | `skills/fitness/run-coach/SKILL.md` | On-demand skill (`/run-coach`) | When to use it, every tool, the core procedure, pitfalls, verification |
 | `skills/fitness/run-coach/references/` | Loaded on demand | `playbooks.md` (step by step), `coaching-rules.md` (rules and reasons), `intake-form.md` (form spec), `tools_schema.json` |
-| `skills/fitness/run-coach/scripts/` | Skill scripts | `coach_tools.py` (all tools, command line), race and general-fitness generators, `trends.py`, FIT/GPX parsers, analysis, `schema.sql`, `tests/` |
+| `skills/fitness/run-coach/scripts/` | Skill scripts | `coach_tools.py` (all tools, command line), race and general-fitness generators, `trends.py`, `history.py`, FIT/GPX parsers, analysis, `schema.sql`, `tests/` |
 | `skills/fitness/run-coach/examples/` | Examples | Sample race and general-fitness form responses, a sample GPX |
 | `run_coach/AGENTS.md` | Project rules for the workspace | Loaded into cron jobs, which run with `workdir` set here |
-| `run_coach/coach.db` | Data | Created on first use. Every athlete's history, outside the skill so updates never touch it |
-| `scripts/run-coach-backup.py` | Cron script (no-agent) | Daily DB backup, keeps 30 |
+| `run_coach/coach.db` | Data: live coaching state | Plans, sessions, signals. Created on first use, outside the skill so updates never touch it |
+| `run_coach/history.db` | Data: permanent run history | Every run ever uploaded: the original file, every data point, every upload attempt (including failed and duplicate ones), and what each run was matched to. Append-only: the database rejects changes and deletions |
+| `scripts/run-coach-backup.py` | Cron script (no-agent) | Daily backup of both databases, keeps 30 of each |
 | `scripts/run-coach-due-<id>.py` | Cron pre-run gate | Generated per athlete; only wakes the agent when a check-in is due |
+
+## Run history
+
+Every run file an athlete sends is recorded permanently in `history.db`:
+- the original `.fit`/`.gpx` file, recoverable byte for byte with
+  `export_run_file`
+- every recorded data point
+- every upload attempt, including duplicates and unreadable files
+- an event log of what the run was matched and compared to
+
+Nothing in it can be edited or deleted; database triggers refuse.
+Rebuilding a plan never touches it. `get_run_history` lists an
+athlete's full history with all-time totals.
 
 ## Progress trends
 
@@ -76,7 +90,8 @@ Created by the agent during setup and onboarding, following
   something is due. It covers the weekly review, after each time
   trial, and the end of a general-fitness block. Athletes can reply to
   it.
-- **`run-coach-backup`** (daily, no LLM).
+- **`run-coach-backup`** (daily, no LLM): backs up `coach.db` and
+  `history.db`.
 
 ## Notes on Hermes behaviour this relies on
 
@@ -96,7 +111,7 @@ Created by the agent during setup and onboarding, following
 
 ```bash
 cd hermes/skills/fitness/run-coach/scripts
-python3 -m unittest discover -s tests        # 12 end-to-end tests (incl. a 9-week trend simulation)
+python3 -m unittest discover -s tests        # 16 tests (incl. a 9-week trend simulation and history-is-permanent checks)
 python3 general_fitness.py                   # preview a general-fitness block
 python3 race_plan.py                         # preview a race build
 ```

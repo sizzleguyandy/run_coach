@@ -21,15 +21,18 @@ skill never touches data). Created from schema.sql on first use.
 
 Zero dependencies beyond the standard library.
 """
+import hashlib
 import json
 import os
 import re
 import sqlite3
 import sys
 import uuid
+import zlib
 from datetime import date, datetime, timedelta, timezone
 
 import analysis
+import history
 from fit_parser import parse_fit
 from general_fitness import (DEFAULT_WEEKS as GF_WEEKS, WALK_RUN_LADDER, _walk_run_label,
                              generate_general_fitness_plan)
@@ -260,7 +263,8 @@ def _goal_type(norm):
 
 def init_db():
     conn = connect()
-    return {"ok": True, "db_path": db_path(),
+    history.connect(db_path()).close()
+    return {"ok": True, "db_path": db_path(), "history_db_path": history.history_path(db_path()),
             "tables": [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]}
 
 
@@ -593,28 +597,51 @@ def generate_program(athlete_id, race_id, reason, constraints=None, general_fitn
 
 
 def parse_run_file(file_path, athlete_id, file_format="auto", athlete_notes=None):
+    """Parse a run file, log it in coach.db AND record it permanently in
+    history.db (original file, all samples, the upload attempt). Every
+    outcome -- recorded, duplicate, or unreadable -- is kept in history."""
     conn = connect()
-    _get_athlete(conn, athlete_id)
+    athlete = _get_athlete(conn, athlete_id)
     if not os.path.exists(file_path):
         raise ToolError(f"file not found: {file_path}")
+    hconn = history.connect(db_path())
+    name, sha = os.path.basename(file_path), history.file_sha256(file_path)
     fmt = file_format
     if fmt == "auto":
         with open(file_path, "rb") as f:
             head = f.read(64)
         fmt = "fit" if b".FIT" in head[:14] else "gpx" if b"<" in head else os.path.splitext(file_path)[1][1:].lower()
     if fmt not in ("fit", "gpx"):
+        history.record_attempt(hconn, athlete_id, name, sha, "parse_failed", detail="unrecognised format")
+        hconn.commit()
         raise ToolError(f"can't tell the format of {file_path}; pass file_format 'fit' or 'gpx'")
-    parsed = parse_fit(file_path) if fmt == "fit" else parse_gpx(file_path)
+    try:
+        parsed = parse_fit(file_path) if fmt == "fit" else parse_gpx(file_path)
+    except Exception as e:                      # corrupt / truncated file
+        history.record_attempt(hconn, athlete_id, name, sha, "parse_failed", detail=f"{type(e).__name__}: {e}")
+        hconn.commit()
+        return {"ok": False, "error": f"couldn't read this {fmt} file ({type(e).__name__}); ask the athlete to "
+                                      f"re-export it. The attempt is recorded in history."}
     summary = {k: v for k, v in parsed.items() if k != "points"}
     if not summary.get("recorded_at"):
+        history.record_attempt(hconn, athlete_id, name, sha, "parse_failed", detail=summary.get("parser_notes"))
+        hconn.commit()
         return {"ok": False, "parser_notes": summary.get("parser_notes"),
                 "error": "file has no usable timestamps/records; ask the athlete for a different export"}
     dup = conn.execute("SELECT run_log_id FROM run_log WHERE athlete_id=? AND recorded_at=?",
                        (athlete_id, summary["recorded_at"])).fetchone()
     if dup:
-        return {"ok": True, "duplicate": True, "run_log_id": dup["run_log_id"], "summary": summary,
-                "note": "this run was already logged; not inserted again"}
+        # Make sure it's in history too (e.g. logged before history existed).
+        hid, _ = history.record_run(hconn, athlete, file_path, fmt, parsed, dup["run_log_id"], athlete_notes)
+        history.record_attempt(hconn, athlete_id, name, sha, "duplicate", hid)
+        hconn.commit()
+        return {"ok": True, "duplicate": True, "run_log_id": dup["run_log_id"], "history_id": hid,
+                "summary": summary, "note": "this run was already logged; not inserted again"}
     rid = _id("run")
+    # History first: if anything after this fails, the run is still kept forever.
+    hid, _ = history.record_run(hconn, athlete, file_path, fmt, parsed, rid, athlete_notes)
+    history.record_attempt(hconn, athlete_id, name, sha, "recorded", hid)
+    hconn.commit()
     conn.execute(
         "INSERT INTO run_log (run_log_id, athlete_id, source_file, source_format, recorded_at, distance_km, "
         "elapsed_time_min, moving_time_min, avg_hr, max_hr, elevation_gain_m, elevation_loss_m, "
@@ -627,7 +654,7 @@ def parse_run_file(file_path, athlete_id, file_format="auto", athlete_notes=None
          summary.get("first_half_avg_hr"), summary.get("second_half_avg_hr"), summary.get("hr_drift_delta"),
          summary.get("parser_notes"), athlete_notes, _now()))
     conn.commit()
-    return {"ok": True, "duplicate": False, "run_log_id": rid, "summary": summary,
+    return {"ok": True, "duplicate": False, "run_log_id": rid, "history_id": hid, "summary": summary,
             "data_quality_warning": summary.get("parser_notes")}
 
 
@@ -645,6 +672,14 @@ def match_run_to_program(athlete_id, run_log_id=None, run_recorded_at=None, run_
         "SELECT * FROM program WHERE athlete_id=? AND status='pending' AND session_date BETWEEN ? AND ?",
         (athlete_id, (d - timedelta(days=1)).isoformat(), (d + timedelta(days=1)).isoformat()))]
     match = analysis.match_run_to_program_row(run_recorded_at, run_distance_km, candidates)
+    if run_log_id:
+        hconn = history.connect(db_path())
+        hid = history.history_id_for(hconn, run_log_id)
+        if hid:
+            history.add_event(hconn, hid, "matched" if match else "unmatched",
+                              {"program_row_id": match["program_row_id"], "session_type": match["session_type"],
+                               "session_date": match["session_date"]} if match else None)
+            hconn.commit()
     return {"ok": True, "match": match,
             "note": None if match else "No pending session within a day. Ask the athlete what this run "
                                        "was; don't guess. You can still call compare_run_to_program "
@@ -689,6 +724,17 @@ def compare_run_to_program(run_log_id, program_row_id=None):
                               run_log_id=run_log_id, program_row_id=program_row_id)
         signals[name] = new
     conn.commit()
+    hconn = history.connect(db_path())
+    hid = history.history_id_for(hconn, run_log_id)
+    if hid:
+        history.add_event(hconn, hid, "compared", {
+            "program_row_id": program_row_id,
+            "planned": {k: prog.get(k) for k in ("session_type", "session_label", "prescribed_distance_km",
+                                                 "prescribed_duration_min", "session_date")} if prog else None,
+            "comparison": comp.__dict__,
+            "signals": {n: {k: v.get(k) for k in ("current_streak", "action_threshold_met")}
+                        for n, v in signals.items()}})
+        hconn.commit()
     return {"ok": True, "comparison": comp.__dict__, "session": prog, "signals": signals,
             "actions_needed": [n for n, s in signals.items() if s.get("action_threshold_met")]}
 
@@ -1112,12 +1158,103 @@ def get_squad_overview():
     return {"ok": True, "today": today.isoformat(), "athletes": rows, "needs_attention": needs_attention}
 
 
+def get_run_history(athlete_id=None, chat_ref=None, start_date=None, end_date=None, limit=200):
+    """Every recorded run for an athlete from the permanent history.db, newest
+    first, with what each was matched to. Includes runs from old/replaced plans."""
+    conn = connect()
+    if not athlete_id:
+        r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE chat_ref=?", (chat_ref or "",)).fetchone()
+        if not r:
+            raise ToolError("pass athlete_id, or a linked chat_ref")
+        athlete_id = r["athlete_id"]
+    hconn = history.connect(db_path())
+    q = ("SELECT history_id, recorded_at, logged_at, source_file_name, source_format, distance_km, "
+         "elapsed_time_min, moving_time_min, avg_hr, max_hr, elevation_gain_m, avg_pace_sec_per_km, "
+         "hr_drift_delta, sample_count, parser_notes FROM runs WHERE athlete_id=?")
+    args = [athlete_id]
+    if start_date:
+        q += " AND recorded_at >= ?"; args.append(start_date)
+    if end_date:
+        q += " AND recorded_at < ?"; args.append((date.fromisoformat(end_date) + timedelta(days=1)).isoformat())
+    q += " ORDER BY recorded_at DESC LIMIT ?"; args.append(int(limit))
+    runs = []
+    for r in hconn.execute(q, args):
+        r = dict(r)
+        ev = hconn.execute("SELECT event_type, detail_json FROM run_events WHERE history_id=? AND event_type "
+                           "IN ('matched','unmatched') ORDER BY occurred_at DESC LIMIT 1", (r["history_id"],)).fetchone()
+        r["matched_to"] = json.loads(ev["detail_json"]) if ev and ev["event_type"] == "matched" else None
+        runs.append(r)
+    totals = hconn.execute("SELECT count(*), coalesce(sum(distance_km),0), coalesce(sum(elapsed_time_min),0), "
+                           "min(recorded_at) FROM runs WHERE athlete_id=?", (athlete_id,)).fetchone()
+    failed = hconn.execute("SELECT count(*) FROM upload_attempts WHERE athlete_id=? AND outcome='parse_failed'",
+                           (athlete_id,)).fetchone()[0]
+    return {"ok": True, "athlete_id": athlete_id, "history_db": history.history_path(db_path()),
+            "all_time": {"runs": totals[0], "km": round(totals[1], 1), "minutes": round(totals[2]),
+                         "first_run": totals[3], "failed_uploads": failed},
+            "runs": runs}
+
+
+def export_run_file(history_id, out_dir=None):
+    """Write the original uploaded .fit/.gpx back out from history.db (e.g. to
+    send it back to the athlete or re-parse it)."""
+    hconn = history.connect(db_path())
+    r = hconn.execute("SELECT source_file_name, file_blob_zlib, file_sha256 FROM runs WHERE history_id=?",
+                      (history_id,)).fetchone()
+    if not r:
+        raise ToolError(f"no run {history_id!r} in history")
+    raw = zlib.decompress(r["file_blob_zlib"])
+    if hashlib.sha256(raw).hexdigest() != r["file_sha256"]:
+        raise ToolError("stored file failed its checksum -- restore history.db from a backup")
+    out_dir = out_dir or os.path.join(os.path.dirname(db_path()), "exports")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, f"{history_id}_{r['source_file_name']}")
+    with open(path, "wb") as f:
+        f.write(raw)
+    return {"ok": True, "path": path, "bytes": len(raw), "checksum_ok": True}
+
+
+def backfill_history():
+    """One-off for installs that logged runs before history.db existed: copies
+    every coach.db run not yet in history (summary only -- the original files
+    weren't kept then). Safe to run any time; also reports whether the two
+    databases agree."""
+    conn = connect()
+    hconn = history.connect(db_path())
+    added = 0
+    for r in conn.execute("SELECT r.*, a.name, a.email FROM run_log r JOIN athlete_profile a USING(athlete_id)"):
+        r = dict(r)
+        if history.history_id_for(hconn, r["run_log_id"]) or hconn.execute(
+                "SELECT 1 FROM runs WHERE athlete_id=? AND recorded_at=?", (r["athlete_id"], r["recorded_at"])).fetchone():
+            continue
+        hid = history._id("hist")
+        hconn.execute(
+            "INSERT INTO runs (history_id, athlete_id, athlete_name, athlete_email, recorded_at, logged_at, "
+            "source_file_name, source_format, file_sha256, file_bytes, file_blob_zlib, distance_km, elapsed_time_min, "
+            "moving_time_min, avg_hr, max_hr, elevation_gain_m, elevation_loss_m, avg_pace_sec_per_km, splits_json, "
+            "first_half_avg_hr, second_half_avg_hr, hr_drift_delta, sample_count, parser_notes, athlete_notes, "
+            "coach_run_log_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (hid, r["athlete_id"], r["name"], r["email"], r["recorded_at"], r["created_at"], r["source_file"],
+             r["source_format"], "", 0, b"", r["distance_km"], r["elapsed_time_min"], r["moving_time_min"],
+             r["avg_hr"], r["max_hr"], r["elevation_gain_m"], r["elevation_loss_m"], r["avg_pace_sec_per_km"],
+             r["splits_json"], r["first_half_avg_hr"], r["second_half_avg_hr"], r["hr_drift_delta"], 0,
+             ((r["parser_notes"] or "") + " [backfilled: original file not kept]").strip(), r["athlete_notes"],
+             r["run_log_id"]))
+        history.add_event(hconn, hid, "logged", {"coach_run_log_id": r["run_log_id"], "backfilled": True})
+        history.record_attempt(hconn, r["athlete_id"], r["source_file"], None, "backfilled", hid)
+        added += 1
+    hconn.commit()
+    coach_n = conn.execute("SELECT count(*) FROM run_log").fetchone()[0]
+    hist_n = hconn.execute("SELECT count(*) FROM runs").fetchone()[0]
+    return {"ok": True, "backfilled": added, "coach_db_runs": coach_n, "history_db_runs": hist_n,
+            "in_sync": hist_n >= coach_n}
+
+
 TOOLS = {f.__name__: f for f in [
     init_db, list_athletes, ingest_intake_form, update_athlete_profile, record_course_info,
     generate_program, parse_run_file, match_run_to_program, compare_run_to_program, record_missed_session,
     get_upcoming_sessions, write_program_revision, schedule_checkin, get_due_checkins,
     check_trigger_staleness, get_athlete_summary, ingest_sheet_rows, link_chat, install_checkin_gate,
-    get_trends, get_squad_overview,
+    get_trends, get_squad_overview, get_run_history, export_run_file, backfill_history,
 ]}
 
 

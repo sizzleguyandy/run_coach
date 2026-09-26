@@ -217,6 +217,23 @@ history. The same division of labour applies: `trends.py` computes and
   drift has hit its threshold twice since October" is more useful than
   today's streak alone.
 
+## 2c. Permanent run history
+
+Every uploaded run goes into `history.db` as well as `coach.db`, and
+history.db can only be added to:
+- **The original file** (compressed, checksummed), so a run can always
+  be re-exported and re-parsed if the parsers improve.
+- **Every recorded sample and the full summary.**
+- **Every upload attempt**, including duplicates and files that
+  couldn't be read. A failed upload is still evidence that the athlete
+  ran.
+- **An event log** of what happened to each run: matched, unmatched,
+  compared, and the warning-sign state at the time.
+
+Database triggers reject every change and deletion. coach.db holds the
+coaching state that does change (plans get rebuilt, sessions get
+superseded). history.db is the fixed record of what actually happened.
+
 ## 3. Tools
 
 Every tool is in `scripts/coach_tools.py`, and parameters are defined
