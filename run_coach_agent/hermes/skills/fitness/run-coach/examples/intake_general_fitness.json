@@ -1,6 +1,7 @@
 {
   "Name": "Sam Example",
   "Email": "sam@example.com",
+  "Your Telegram user ID (message @userinfobot on Telegram to get it)": "1111111111",
   "Current weight (kg)": "82",
   "Any current injuries or old injuries relevant to running": "Sore left knee after football years ago, fine now",
   "Fixed weekly commitments (gym days, work shifts, anything that can't move)": "Five-a-side football every Wednesday evening",
@@ -9,12 +10,16 @@
   "Roughly how many minutes a week have you been running lately?": "None",
   "How many days a week can you realistically fit in a session?": "3",
   "What does \"fitter\" mean to you? (e.g. run 30 min non-stop, keep up with my kids, lose weight, feel less out of breath)": "Run 30 minutes without stopping by summer",
-  "Health check — do any of these apply?": ["None of these"],
+  "Health check — do any of these apply?": [
+    "None of these"
+  ],
   "Longest run in the last 4 weeks (km)": "0",
   "Total running km in the last 4 weeks (roughly)": "0",
   "Do you use a running watch/app that shows heart rate zones?": "No",
   "Preferred long-run day": "Saturday",
-  "Days you'd rather avoid running entirely": ["Wednesday"],
+  "Days you'd rather avoid running entirely": [
+    "Wednesday"
+  ],
   "How should I send you your training file/spreadsheet?": "Email is fine",
   "Anything else I should know?": ""
 }

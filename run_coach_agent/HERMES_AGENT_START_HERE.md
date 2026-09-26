@@ -106,10 +106,11 @@ what you changed.
    users send (for example `~/.hermes/cache/documents/`) and how you
    receive the path. If it isn't handed to you automatically, note in
    `references/playbooks.md` playbook B where to find it.
-5. **Google Sheets access.** Check the bundled `google-workspace`
-   skill is installed and whether it's authorised for Sheets. If not,
-   tell your owner that form intake needs it, and follow that skill's
-   setup with them.
+5. **Google Sheets access (optional).** The owner normally sends the
+   athletes' Sheet as a downloaded .csv/.xlsx file, which needs no
+   Google access. Only if they want to send Sheet links: set up
+   `google-workspace` in the coach profile for Sheets only
+   (`BOB_TELEGRAM_SETUP.md` step 4).
 
 ## Step 5 — Smoke test (no real athletes)
 
@@ -150,10 +151,10 @@ owner:
 > "Installed and tested. Start the coach with `hermes -p run-coach chat`
 > (or connect that profile to your Telegram gateway), then type:
 > `/run-coach set up the coaching system`. The coach will then:
-> - create the hourly job that reads your Google Form responses Sheet
->   (it will ask for the Sheet ID)
 > - create the daily database backup
-> - give you the steps for sharing the form and bot link with athletes."
+> - explain your routine: download the form's responses Sheet as CSV
+>   or Excel and send it to the bot; it builds every plan and gives
+>   you a link to forward to each athlete."
 
 If you *are* running in the target profile already, start a new
 session (`/new`) and carry on from `playbooks.md` section 0 yourself.

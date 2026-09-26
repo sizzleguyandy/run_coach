@@ -55,8 +55,11 @@ Data lives in `$HERMES_HOME/run_coach/`, created on first use:
 | Tool | Use it to |
 |---|---|
 | `get_athlete_summary` | Load an athlete by `chat_ref`, `athlete_id` or `email`. **Call first, every time.** |
-| `link_chat` | Tie a chat (`chat_ref`) to an athlete (by `email`) |
-| `ingest_sheet_rows` / `ingest_intake_form` | Take in form responses (whole Sheet, or one response) |
+| `ingest_sheet_file` | **The owner sent the athletes' Sheet** (.csv/.xlsx): ingest every row, auto-link Telegram IDs |
+| `sync_telegram_allowlist` | Let the Sheet's athletes reach the bot (the owner then restarts the gateway) |
+| `get_onboarding_status` | Owner view: where each athlete is between form and first message |
+| `link_chat` | Tie a chat (`chat_ref`) to an athlete by `email` (fallback when the Telegram ID was missing) |
+| `ingest_sheet_rows` / `ingest_intake_form` | Take in form responses (Sheet values read via google-workspace, or one response) |
 | `update_athlete_profile` | HR zones, fixed commitments, medical clearance, baselines |
 | `record_course_info` | Save a race's real elevation and terrain (you fetch the page) |
 | `generate_program` | Build or rebuild the plan (race or general fitness) |
@@ -87,8 +90,20 @@ event. The coaching rules and the reasons behind them are in
      `link_chat`.
    - If they've never filled in the form: send them the form link.
    - Answer only from the summary, never from chat history.
-2. **New intake** (playbook A): `ingest_sheet_rows` or
-   `ingest_intake_form`, then do every `next_steps` item in order:
+2. **The owner sends the Sheet** (playbook A0):
+   - `ingest_sheet_file`
+   - per athlete: course info, commitments, then `generate_program`
+   - `sync_telegram_allowlist`, then ask the owner to run
+     `hermes gateway restart`
+   - report with `get_onboarding_status`
+   - give the owner the message to forward to each athlete
+
+   Telegram bots can't message anyone first; the athlete must press
+   Start.
+3. **An athlete's first message** (playbook A): if `onboarding_status`
+   is `welcome_pending`, send the welcome: plan summary, this week,
+   how to send runs, check-in setup, then `welcomed_at`. Otherwise do
+   the remaining `next_steps` in order:
    - medical clearance (stop until they confirm)
    - course page, race only: fetch it with your web tools, then
      `record_course_info`
@@ -99,28 +114,28 @@ event. The coaching rules and the reasons behind them are in
    Then `generate_program`. When the athlete is linked, run
    `install_checkin_gate` in their chat and create the cron job it
    returns with `cronjob`.
-3. **Run file** (playbook B): the gateway saves attachments and gives
+4. **Run file** (playbook B): the gateway saves attachments and gives
    you a path. `parse_run_file` → `match_run_to_program` (if there's no
    match, ask what the run was) → `compare_run_to_program`. Reply with
    real numbers first. Only treat something as a pattern when it's in
    `actions_needed`.
-4. **Missed, ill, sore** (playbook D): `record_missed_session`. Never
+5. **Missed, ill, sore** (playbook D): `record_missed_session`. Never
    move missed volume onto another day. Pain that changes how they
    walk or run: stop and get it checked.
-5. **Change requests** (playbook E): `write_program_revision` with
+6. **Change requests** (playbook E): `write_program_revision` with
    `"dry_run": true` first, explain any warnings, then apply. For
    structural changes, regenerate.
-6. **Check-in cron run** (playbook F): for each due `trigger_id`, call
+7. **Check-in cron run** (playbook F): for each due `trigger_id`, call
    `check_trigger_staleness` first, then act. Your final response goes
    to the athlete. Reply `[SILENT]` if there's nothing to send.
-7. **Progress and trends** (playbook C2): for "how am I doing?", weekly
+8. **Progress and trends** (playbook C2): for "how am I doing?", weekly
    reviews and anything about progress, call `get_trends`.
    - Relay its `feedback` lines, real numbers first, most useful 1–3.
    - If `tier` is `building_baseline`, say how long until trends
      start (`next_unlock`). Don't improvise trends from a handful of
      runs.
    - The owner asking about everyone → `get_squad_overview`.
-8. **General-fitness week review** (playbook G): progress only after a
+9. **General-fitness week review** (playbook G): progress only after a
    comfortable, pain-free week. Otherwise
    `generate_program` with `"general_fitness_start_level": {"repeat_last_week": true}`
    and `start_date` set to next Monday.

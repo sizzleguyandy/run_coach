@@ -4,7 +4,8 @@ Your owner has installed the run coach into a separate profile, called
 `bob` below (use the real profile name if it's different). Bob needs:
 1. the same LLM your owner's default Hermes uses
 2. its own Telegram bot, served by the same gateway as the default bot
-3. Sheets-only Google access for form intake
+3. (Optional) Sheets-only Google access, only if the owner wants to
+   send Sheet links instead of files
 
 Work through the steps in order, from the **default** profile's
 terminal. Report back after each step. **Ask your owner before any
@@ -94,51 +95,61 @@ Test: ASK your owner to send the **new** bot a message in Telegram
 (e.g. "hello"). It should reply in the coach's voice. Their normal bot
 should carry on as before.
 
-## Step 4 — Google Sheets for form intake (Sheets only)
+## Step 4 — Google access (optional)
 
-Don't copy the default profile's Google token into bob. That token
-carries every scope the default profile was granted (possibly Gmail,
-Drive, Calendar), and bob talks to people you don't know. Give bob its
-own login, limited to Sheets.
+Your owner sends bob the athletes' Sheet as a **downloaded file**
+(.csv or .xlsx) in Telegram. That needs no Google access at all, so
+skip this step unless they'd rather send a Sheet **link**.
 
-The Google skill saves its login in whichever profile runs it, so this
-has to happen inside bob:
+If they want links: don't copy the default profile's Google token into
+bob. It carries every scope the default profile was granted (possibly
+Gmail, Drive, Calendar), and bob talks to people you don't know. Give
+bob its own login, limited to Sheets. The Google skill saves its login
+in whichever profile runs it, so this has to happen inside bob:
 1. ASK your owner to open a bob session (`hermes -p bob chat`, or
    message the new bot as the owner) and send:
    `/google-workspace set up Google access for Sheets only (--services sheets)`
 2. Bob walks them through the Google sign-in in their browser.
-   Afterwards, in that same bob session, the owner can test it:
-   *"read the first 3 rows of Sheet <SHEET_ID>"* (the form's
-   response Sheet).
 
 ## Step 5 — How athletes get in (tell your owner)
 
-Hermes turns away Telegram users who aren't on the allowlist. Athletes
-join by **pairing**:
-1. The athlete fills in the Google Form, then messages bob's bot.
-2. The bot replies with a pairing code (valid for 1 hour).
-3. The athlete sends that code to the owner (text, WhatsApp, anything).
-4. The owner approves it:
-   `hermes -p bob pairing approve telegram <CODE>`
+Telegram doesn't let a bot message someone first, and Hermes turns
+away users who aren't on the bot's allowlist. The flow handles both:
 
-Also useful: `hermes -p bob pairing list` (pending and approved) and
-`hermes -p bob pairing revoke telegram <user id>`.
+1. **The form asks each athlete for their Telegram user ID.** It's a
+   number, which they get by messaging @userinfobot. ASK your owner to
+   add this question to the Google Form, worded exactly:
+   `Your Telegram user ID (message @userinfobot on Telegram to get it)`
+   Suggested validation: Response validation → Regular expression →
+   Matches → `^[0-9]{5,15}$`.
+2. **The owner checks the responses Sheet**, then sends it to bob as a
+   file (File → Download → CSV or Excel → send in Telegram).
+3. **Bob builds every plan and adds the athletes to its allowlist,**
+   then reports who's ready and gives the owner a message to forward to
+   each athlete, with the bot link.
+4. **The owner runs `hermes gateway restart` once**, so the new
+   allowlist takes effect. All bots blink for a few seconds.
+5. **The owner forwards the message.** The athlete opens the bot,
+   presses **Start**, and says hi. Bob recognises them straight away
+   and sends their welcome and plan.
 
-Suggest adding this to the Google Form's confirmation message:
-> "Next, message the coach bot at t.me/<bot username>. It will reply
-> with a pairing code. Send that code to your coach so they can let
-> you in, and the bot will then send you your plan."
+Fallback for an athlete whose ID was missing or wrong: they message the
+bot and get a pairing code, then the owner runs
+`hermes -p bob pairing approve telegram <CODE>`.
 
 Athletes are regular users, not admins. They can chat with the coach
-but can't run slash commands. Only the owner is admin.
+but can't run slash commands. Only the owner is admin, which is why
+the owner's ID stays first on the allowlist.
 
 ## Step 6 — Hand over
 
 Tell your owner:
 > "Bob is on its own Telegram bot, using the same model as me, served
 > by the same gateway. Open a chat with the new bot and type
-> `/run-coach set up the coaching system`. It will set up the hourly
-> form-intake job and the daily backup."
+> `/run-coach set up the coaching system`. It sets up the daily backup
+> and explains the routine. After that, whenever you have new
+> athletes, download the responses Sheet as CSV or Excel and send it
+> to bob."
 
 ## Rules
 

@@ -19,6 +19,7 @@ math or self-diagnose.
 |---|---|---|---|
 | Name | short text | `athlete_profile.name` | |
 | Email | email | `athlete_profile.email` | |
+| Your Telegram user ID (message @userinfobot on Telegram to get it) | short text, required | `athlete_profile.chat_ref` = `telegram:<id>` | A **number** such as `1491755393`, not an @username. When the owner sends the Sheet, the bot links this athlete to that Telegram account and adds them to the bot's allowlist, so they're recognised the moment they press Start. Suggested validation in Google Forms: Response validation → Regular expression → Matches → `^[0-9]{5,15}$`. |
 | Current weight (kg) | number | `athlete_profile.weight_kg` | Set `weight_source='self_reported'` |
 | Any current injuries or old injuries relevant to running | long text | `athlete_profile.injury_history` | Free text; the agent reads this before generating anything, doesn't parse it into structured fields |
 | Fixed weekly commitments (gym days, work shifts, anything that can't move) | long text | `athlete_profile.fixed_commitments` | Free text in the form; the AGENT converts this to the JSON structure the schema expects during intake processing — don't make the athlete produce JSON |
@@ -89,25 +90,36 @@ their generator uses; the km figures are just extra context.
 
 ## Getting responses to the agent (Hermes)
 
-In the Form's **Responses** tab, click **Link to Sheets**. The hourly
-`run-coach intake` cron job (set up in `playbooks.md` section 0) reads
-that Sheet with the `google-workspace` skill and passes every row to
-`ingest_sheet_rows`. Rows already ingested are skipped, and
-checkbox answers (the health check and days to avoid) are split
-automatically.
+The owner checks the responses Sheet (fixing typos, removing test
+rows), then **sends it to the coach bot**:
+
+- **As a file (recommended, no Google login needed):** in Google
+  Sheets, File → Download → **Comma-separated values (.csv)** or
+  **Microsoft Excel (.xlsx)**, then send the file to the bot in
+  Telegram. The bot runs `ingest_sheet_file`.
+- **As a link:** only if `google-workspace` is authorised for Sheets
+  in the coach profile. The bot reads it and runs `ingest_sheet_rows`.
+
+Re-sending the whole Sheet is safe:
+- Unchanged rows are skipped.
+- An edited row updates that athlete's details but keeps their goal
+  and plan, unless the goal itself changed; in that case the bot asks
+  the owner before rebuilding.
+- Checkbox answers (the health check and days to avoid) are split
+  automatically.
+- Dates like `17/01/2027` are read as day/month. Ambiguous ones such
+  as `05/06/2027` are flagged for confirmation.
 
 Questions are matched by their **wording**. Keep the question text as
-written above. If you reword one, run a test submission and check the
-`normalized` block that `ingest_intake_form` returns.
+written above. If you reword one, send a test row and check the
+`normalized` block in the result.
 
-Add this to the form's confirmation message:
-*"Next, message the coach bot at <bot link>. It will reply with a
-pairing code. Send that code to your coach so they can let you in,
-and the bot will then send you your plan."*
-
-Hermes only lets approved Telegram users talk to a bot; the owner
-approves each athlete's pairing code. After that, the bot links their
-chat to their form response by email.
+**Telegram rule:** a bot can't message someone first. The athlete
+must open the bot and press **Start** before the coach can talk to
+them. So the form's confirmation message should say:
+*"Thanks! Once your coach has set up your plan you'll get a link to
+the coach bot. Open it, press Start and say hi, and your plan will be
+waiting."*
 
 ## What the agent does with this on submission
 

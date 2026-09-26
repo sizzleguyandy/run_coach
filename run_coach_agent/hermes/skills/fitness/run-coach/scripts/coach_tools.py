@@ -96,7 +96,11 @@ def connect():
         with open(os.path.join(KIT_DIR, "schema.sql")) as f:
             conn.executescript(f.read())
         conn.commit()
-    elif not conn.execute("SELECT name FROM sqlite_master WHERE name='signal_event'").fetchone():
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(athlete_profile)")}
+    if cols and "welcomed_at" not in cols:
+        conn.execute("ALTER TABLE athlete_profile ADD COLUMN welcomed_at TEXT")
+        conn.commit()
+    if not conn.execute("SELECT name FROM sqlite_master WHERE name='signal_event'").fetchone():
         # Databases created before trends existed: add the history table.
         with open(os.path.join(KIT_DIR, "schema.sql")) as f:
             ddl = f.read()
@@ -166,6 +170,7 @@ def _latest_intake(conn, athlete_id):
 
 INTAKE_FIELDS = [
     ("goal",                   ("what are you training for",)),
+    ("telegram_user_id",       ("telegram",)),
     ("race_name",              ("race name",)),
     ("race_date",              ("race date",)),
     ("race_distance",          ("race distance",)),
@@ -263,6 +268,43 @@ def _days(v):
     return out
 
 
+def _parse_date(v):
+    """Form/Sheet dates arrive as ISO, '17/01/2027', '1/17/2027', or an Excel
+    serial number. Returns (iso_date or None, warning or None). A date that
+    could be either day/month or month/day is read as day/month and flagged."""
+    if v is None or v == "":
+        return None, None
+    if isinstance(v, (int, float)) or re.fullmatch(r"\d{5}(\.\d+)?", str(v).strip()):
+        return (date(1899, 12, 30) + timedelta(days=int(float(v)))).isoformat(), None
+    t = str(v).strip()
+    m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", t)
+    if m:
+        return date(int(m[1]), int(m[2]), int(m[3])).isoformat(), None
+    m = re.match(r"(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})", t)
+    if not m:
+        raise ToolError(f"can't read the date {t!r}; use YYYY-MM-DD")
+    a, b, y = int(m[1]), int(m[2]), int(m[3])
+    y = y + 2000 if y < 100 else y
+    if a > 12:
+        return date(y, b, a).isoformat(), None
+    if b > 12:
+        return date(y, a, b).isoformat(), None
+    warn = (f"Race date {t!r} could be day/month or month/day; read it as {date(y, b, a).isoformat()} "
+            f"(day/month). Confirm with the athlete." if a != b else None)
+    return date(y, b, a).isoformat(), warn
+
+
+def _telegram_id(v):
+    """Numeric Telegram user id from the form, or (None, warning)."""
+    t = re.sub(r"\s", "", str(v or ""))
+    if not t:
+        return None, None
+    if re.fullmatch(r"\d{5,15}", t):
+        return t, None
+    return None, (f"Telegram field {v!r} isn't a numeric user id (usernames like @name can't be used). "
+                  f"Ask the athlete to message @userinfobot and send you the number.")
+
+
 def _goal_type(norm):
     g = str(norm.get("goal") or "").lower()
     if "fitter" in g or "no event" in g or "general" in g:
@@ -307,6 +349,10 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
     if isinstance(health, str):
         health = [h.strip() for h in re.split(r"[,;]", health) if h.strip()]
     health = [h for h in health if "none" not in h.lower()]
+
+    tg_id, tg_warn = _telegram_id(norm.get("telegram_user_id"))
+    if tg_warn:
+        warnings.append(tg_warn)
 
     existing = None
     if norm.get("email"):
@@ -355,25 +401,48 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
     start = date.fromisoformat(start_date) if start_date else _next_monday(_today())
     if goal_type == "race":
         dist = _distance_km(norm.get("race_distance"))
-        if not norm.get("race_date") or not dist:
+        race_iso, date_warn = _parse_date(norm.get("race_date"))
+        if date_warn:
+            warnings.append(date_warn)
+        if not race_iso or not dist:
             raise ToolError("goal is 'race' but race date or distance is missing/unreadable: "
                             f"date={norm.get('race_date')!r} distance={norm.get('race_distance')!r}. "
                             "Ask the athlete, then resubmit with canonical keys race_date / race_distance.")
         goal = dict(race_id=race_id, athlete_id=athlete_id, goal_type="race",
                     race_name=norm.get("race_name") or f"{dist:g} km race",
-                    race_date=str(norm["race_date"])[:10], start_time_local=norm.get("race_start_time"),
+                    race_date=race_iso, start_time_local=norm.get("race_start_time"),
                     distance_km=dist, course_url=norm.get("course_url"), created_at=now)
     else:
         goal = dict(race_id=race_id, athlete_id=athlete_id, goal_type="general_fitness",
                     race_name="General fitness",
                     review_date=(start + timedelta(weeks=GF_WEEKS)).isoformat(), created_at=now)
     old = _active_goal(conn, athlete_id)
-    conn.execute(f"INSERT INTO race_target ({', '.join(goal)}) VALUES ({', '.join('?' * len(goal))})",
-                 tuple(goal.values()))
-    if old:
-        conn.execute("UPDATE race_target SET status='dropped', superseded_by=? WHERE race_id=?",
-                     (race_id, old["race_id"]))
-        warnings.append(f"Replaced previous active goal {old['race_name']!r} ({old['race_id']}).")
+    same_goal = bool(old) and old["goal_type"] == goal["goal_type"] and (
+        goal["goal_type"] == "general_fitness" or
+        (old["race_date"], old["distance_km"], old["race_name"]) ==
+        (goal["race_date"], goal["distance_km"], goal["race_name"]))
+    if same_goal:
+        race_id = old["race_id"]            # re-sent / edited row, same goal: keep the goal and its plan
+    else:
+        conn.execute(f"INSERT INTO race_target ({', '.join(goal)}) VALUES ({', '.join('?' * len(goal))})",
+                     tuple(goal.values()))
+        if old:
+            conn.execute("UPDATE race_target SET status='dropped', superseded_by=? WHERE race_id=?",
+                         (race_id, old["race_id"]))
+            warnings.append(f"Goal changed: replaced {old['race_name']!r} ({old['race_id']}). The old plan "
+                            f"stays until you generate a new one -- confirm with the owner first.")
+    # Telegram id on the form -> link the chat now, so the athlete is recognised on their first message.
+    linked = False
+    if tg_id:
+        ref = f"telegram:{tg_id}"
+        other = conn.execute("SELECT athlete_id FROM athlete_profile WHERE chat_ref=? AND athlete_id!=?",
+                             (ref, athlete_id)).fetchone()
+        if other:
+            warnings.append(f"Telegram id {tg_id} is already linked to athlete {other['athlete_id']}; not linked "
+                            f"here. Check the Sheet for a copy-paste mistake.")
+        elif (existing or {}).get("chat_ref") != ref:
+            conn.execute("UPDATE athlete_profile SET chat_ref=? WHERE athlete_id=?", (ref, athlete_id))
+            linked = True                   # newly linked (re-sent rows don't repeat this step)
     conn.commit()
 
     # Tell the agent exactly what's left to do.
@@ -390,19 +459,29 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
                           f"yourself, work out whether it's %max or %LTHR, and call "
                           f"update_athlete_profile with the hr_zone_* fields, hr_zone_source and "
                           f"hr_zone_basis_notes.")
-    if norm.get("fixed_commitments"):
+    if norm.get("fixed_commitments") and not (existing or {}).get("fixed_commitments"):
         next_steps.append("Convert the fixed-commitments free text to a JSON list "
                           "[{day, activity, moveable}] and call update_athlete_profile(fixed_commitments=...). "
                           "Pass any day that can't hold a run as constraints.avoid_days to generate_program.")
     if goal_type == "race" and (norm.get("longest_run_km") is None or norm.get("total_km_4wk") is None):
         next_steps.append("Longest run / 4-week km missing: ask the athlete before generating a race plan.")
-    next_steps.append(f"Call generate_program(athlete_id={athlete_id!r}, race_id={race_id!r}, "
-                      f"reason='initial plan from intake').")
-    if not (existing or {}).get("chat_ref"):
-        next_steps.append("When the athlete messages you, link their chat: link_chat(email=..., chat_ref=...). "
-                          "Then set up their daily check-ins with install_checkin_gate FROM THEIR CHAT.")
+    has_plan = bool(conn.execute("SELECT 1 FROM program_revision WHERE race_id=?", (race_id,)).fetchone())
+    if not has_plan:
+        next_steps.append(f"Call generate_program(athlete_id={athlete_id!r}, race_id={race_id!r}, "
+                          f"reason='initial plan from intake').")
+    elif existing:
+        next_steps.append("This athlete already has a plan for this goal; the row only updated their details. "
+                          "Tell the owner what changed; regenerate only if they ask.")
+    if linked:
+        next_steps.append("Telegram id linked. Run sync_telegram_allowlist so they can reach the bot (the owner then "
+                          "restarts the gateway). When they first message you, send the welcome (playbook A, step 6).")
+    elif not (existing or {}).get("chat_ref"):
+        next_steps.append("No usable Telegram id: when the athlete messages you, link their chat with "
+                          "link_chat(email=..., chat_ref=...), then send the welcome.")
     return {"ok": True, "duplicate": False, "athlete_id": athlete_id, "race_id": race_id, "goal_type": goal_type,
-            "is_update_of_existing_athlete": bool(existing), "health_screen_flags": health,
+            "is_update_of_existing_athlete": bool(existing), "goal_changed": not same_goal and bool(old),
+            "telegram_linked": linked or bool(tg_id and (existing or {}).get("chat_ref") == f"telegram:{tg_id}"),
+            "health_screen_flags": health,
             "needs_medical_clearance": bool(health), "normalized": norm,
             "warnings": warnings, "next_steps": next_steps}
 
@@ -413,7 +492,7 @@ def update_athlete_profile(athlete_id, fields):
                "hr_zone_source", "hr_zone_basis_notes", "hr_max", "hr_lthr",
                "hr_zone1_low", "hr_zone1_high", "hr_zone2_low", "hr_zone2_high", "hr_zone3_low",
                "hr_zone3_high", "hr_zone4_low", "hr_zone4_high", "hr_zone5_low",
-               "health_screen_flags", "medical_clearance_at",
+               "health_screen_flags", "medical_clearance_at", "welcomed_at",
                "baseline_continuous_run_min", "baseline_weekly_run_min"}
     bad = set(fields) - allowed
     if bad:
@@ -964,6 +1043,24 @@ def check_trigger_staleness(trigger_id):
                             if (stale or dep_superseded) else "Plan unchanged; act on the prompt.")}
 
 
+def _onboarding_status(conn, athlete):
+    goal = _active_goal(conn, athlete["athlete_id"])
+    flags = json.loads(athlete.get("health_screen_flags") or "[]")
+    has_plan = bool(goal) and bool(conn.execute("SELECT 1 FROM program_revision WHERE race_id=?",
+                                                (goal["race_id"],)).fetchone())
+    if not goal:
+        return "no_goal"
+    if flags and not athlete.get("medical_clearance_at"):
+        return "awaiting_medical_clearance"
+    if not has_plan:
+        return "plan_not_generated"
+    if not athlete.get("chat_ref"):
+        return "awaiting_telegram_link"
+    if not athlete.get("welcomed_at"):
+        return "welcome_pending"
+    return "active"
+
+
 def get_athlete_summary(athlete_id=None, email=None, chat_ref=None):
     """Everything the agent needs before replying: profile, active goal,
     current plan revision, this week and next, signals, recent runs."""
@@ -997,7 +1094,8 @@ def get_athlete_summary(athlete_id=None, email=None, chat_ref=None):
                 "ORDER BY recorded_at DESC LIMIT 5", (athlete_id,))],
             "pending_checkins": conn.execute("SELECT count(*) FROM checkin_trigger WHERE athlete_id=? AND "
                                              "status='pending'", (athlete_id,)).fetchone()[0],
-            "latest_intake": _latest_intake(conn, athlete_id)}
+            "latest_intake": _latest_intake(conn, athlete_id),
+            "onboarding_status": _onboarding_status(conn, athlete)}
 
 
 def ingest_sheet_rows(values, start_date=None):
@@ -1266,12 +1364,120 @@ def backfill_history():
             "in_sync": hist_n >= coach_n}
 
 
+def _read_xlsx(path):
+    """First worksheet of an .xlsx as a 2-D list of strings (stdlib only)."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+          "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships"}
+    with zipfile.ZipFile(path) as z:
+        shared = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", ns):
+                shared.append("".join(t.text or "" for t in si.iter(f"{{{ns['m']}}}t")))
+        wb = ET.fromstring(z.read("xl/workbook.xml"))
+        first = wb.find("m:sheets/m:sheet", ns)
+        rid = first.get(f"{{{ns['r']}}}id")
+        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+        target = next(r.get("Target") for r in rels if r.get("Id") == rid)
+        target = target.lstrip("/")
+        sheet_path = target if target.startswith("xl/") else "xl/" + target
+        root = ET.fromstring(z.read(sheet_path))
+    rows = []
+    for row in root.iter(f"{{{ns['m']}}}row"):
+        cells = {}
+        for c in row.findall("m:c", ns):
+            col = 0
+            for ch in re.match(r"[A-Z]+", c.get("r")).group():
+                col = col * 26 + ord(ch) - 64
+            t, v = c.get("t"), c.find("m:v", ns)
+            if t == "s" and v is not None:
+                val = shared[int(v.text)]
+            elif t == "inlineStr":
+                val = "".join(x.text or "" for x in c.iter(f"{{{ns['m']}}}t"))
+            else:
+                val = v.text if v is not None else ""
+            cells[col - 1] = val
+        if cells:
+            rows.append([cells.get(i, "") for i in range(max(cells) + 1)])
+    return rows
+
+
+def ingest_sheet_file(file_path, start_date=None):
+    """Ingest the owner's Google Sheet sent as a file (File > Download > CSV or
+    Microsoft Excel). First row = the form's question headers. Same behaviour as
+    ingest_sheet_rows: unchanged rows are skipped, so re-sending the whole sheet
+    is safe."""
+    import csv
+    if not os.path.exists(file_path):
+        raise ToolError(f"file not found: {file_path}")
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".xlsx":
+        values = _read_xlsx(file_path)
+    elif ext in (".csv", ".txt"):
+        with open(file_path, newline="", encoding="utf-8-sig") as f:
+            values = [row for row in csv.reader(f)]
+    else:
+        raise ToolError("send the Sheet as .csv or .xlsx (Google Sheets: File > Download)")
+    values = [r for r in values if any(str(c).strip() for c in r)]
+    return ingest_sheet_rows(values, start_date=start_date)
+
+
+def sync_telegram_allowlist():
+    """Add every athlete's Telegram id to this profile's TELEGRAM_ALLOWED_USERS
+    (never removes anyone; backs up .env first). The owner must then restart
+    the gateway -- Hermes reads the allowlist at startup."""
+    home = hermes_home() or os.path.expanduser("~/.hermes")
+    env = os.path.join(home, ".env")
+    if not os.path.exists(env):
+        raise ToolError(f"no .env at {env}; set up this profile's Telegram bot first")
+    with open(env, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    idx = next((i for i, l in enumerate(lines) if re.match(r"\s*(export\s+)?TELEGRAM_ALLOWED_USERS\s*=", l)), None)
+    if idx is None:
+        raise ToolError("TELEGRAM_ALLOWED_USERS isn't set in this profile's .env. Add the owner's own Telegram id "
+                        "there first (the owner must stay on the list), then run this again.")
+    current = [x.strip() for x in lines[idx].split("=", 1)[1].strip().strip("\"'").split(",") if x.strip()]
+    conn = connect()
+    ids = [r["chat_ref"].split(":", 1)[1] for r in conn.execute(
+        "SELECT chat_ref FROM athlete_profile WHERE chat_ref LIKE 'telegram:%'")]
+    added = [i for i in ids if i not in current]
+    if not added:
+        return {"ok": True, "added": [], "restart_needed": False, "allowed_count": len(current)}
+    backup = f"{env}.bak-run-coach-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    with open(backup, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    lines[idx] = "TELEGRAM_ALLOWED_USERS=" + ",".join(current + added)
+    with open(env, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return {"ok": True, "added": added, "allowed_count": len(current) + len(added), "restart_needed": True,
+            "env_backup": backup,
+            "instruction": "Ask the owner to run `hermes gateway restart` (all bots blink for a few seconds). "
+                           "Don't run it yourself from a gateway chat: it would end your own session."}
+
+
+def get_onboarding_status():
+    """Owner view after sending the Sheet: where every athlete is between form and first message."""
+    conn = connect()
+    rows = []
+    for a in conn.execute("SELECT * FROM athlete_profile ORDER BY name"):
+        a = dict(a)
+        goal = _active_goal(conn, a["athlete_id"]) or {}
+        rows.append({"athlete_id": a["athlete_id"], "name": a["name"], "goal": goal.get("race_name"),
+                     "telegram_linked": bool(a.get("chat_ref")), "status": _onboarding_status(conn, a)})
+    counts = {}
+    for r in rows:
+        counts[r["status"]] = counts.get(r["status"], 0) + 1
+    return {"ok": True, "athletes": rows, "counts": counts}
+
+
 TOOLS = {f.__name__: f for f in [
     init_db, list_athletes, ingest_intake_form, update_athlete_profile, record_course_info,
     generate_program, parse_run_file, match_run_to_program, compare_run_to_program, record_missed_session,
     get_upcoming_sessions, write_program_revision, schedule_checkin, get_due_checkins,
     check_trigger_staleness, get_athlete_summary, ingest_sheet_rows, link_chat, install_checkin_gate,
     get_trends, get_squad_overview, get_run_history, export_run_file, backfill_history,
+    ingest_sheet_file, sync_telegram_allowlist, get_onboarding_status,
 ]}
 
 

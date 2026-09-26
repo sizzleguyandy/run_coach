@@ -83,12 +83,25 @@ to one profile only. It's served by the same (default, multiplexing)
 gateway and uses the default profile's model. `BOB_TELEGRAM_SETUP.md`
 walks your Hermes agent through it.
 
-Athletes aren't put on the allowlist. They message the bot, get a
-pairing code, and the owner approves it with
-`hermes -p <profile> pairing approve telegram <CODE>`.
+**Owner routine for new athletes:**
+1. Athletes fill in the Google Form, which includes their Telegram user
+   ID from @userinfobot.
+2. You check the responses Sheet and send it to the bot as a .csv or
+   .xlsx file.
+3. The bot builds every plan and adds the athletes to its allowlist.
+   It reports who's ready and gives you a message to forward to each
+   athlete.
+4. You run `hermes gateway restart` once.
+5. You forward the messages. Each athlete opens the bot, presses
+   Start, and gets their welcome and plan.
 
-Give Google access to the coach profile for **Sheets only**, and don't
-copy another profile's token: the coach talks to people you don't
+Telegram doesn't let bots message people first, so the forwarded link
+and the Start press are the one step that can't be automated. If an
+athlete's ID was missing, Hermes pairing is the fallback.
+
+Sending the Sheet as a file needs no Google login. If you'd rather send
+links, give the coach profile Google access for **Sheets only**, and
+don't copy another profile's token: the coach talks to people you don't
 know.
 
 ## Scheduled jobs
@@ -96,10 +109,9 @@ know.
 Created by the agent during setup and onboarding, following
 `references/playbooks.md`:
 
-- **`run-coach intake`** (hourly, from the owner's chat): reads the
-  form's response Sheet and ingests new rows. Duplicates are skipped.
-  Sends you a one-line summary per new athlete, and stays silent
-  otherwise.
+- **`run-coach intake`** (optional, hourly): only if you want
+  automatic intake from a Sheet link instead of sending the file
+  yourself.
 - **`run-coach checkins <athlete>`** (daily, created in that athlete's
   chat so it delivers to them): its gate script costs nothing unless
   something is due. It covers the weekly review, after each time
@@ -126,7 +138,7 @@ Created by the agent during setup and onboarding, following
 
 ```bash
 cd hermes/skills/fitness/run-coach/scripts
-python3 -m unittest discover -s tests        # 16 tests (incl. a 9-week trend simulation and history-is-permanent checks)
+python3 -m unittest discover -s tests        # 20 tests (incl. Sheet onboarding, a 9-week trend simulation, history checks)
 python3 general_fitness.py                   # preview a general-fitness block
 python3 race_plan.py                         # preview a race build
 ```

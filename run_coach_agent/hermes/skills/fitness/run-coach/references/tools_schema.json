@@ -5,7 +5,7 @@
       "type": "function",
       "function": {
         "name": "get_athlete_summary",
-        "description": "Load everything about one athlete before replying to them: profile, active goal (race or general_fitness), current plan revision, this week's and next week's sessions, pattern signals, last 5 runs, latest intake. Identify by chat_ref in athlete chats. Call this at the start of every conversation turn about an athlete -- never answer from memory or chat history, the plan may have been revised.",
+        "description": "Load everything about one athlete before replying to them: profile, active goal (race or general_fitness), current plan revision, this week's and next week's sessions, pattern signals, last 5 runs, latest intake. Identify by chat_ref in athlete chats. Call this at the start of every conversation turn about an athlete -- never answer from memory or chat history, the plan may have been revised. Includes onboarding_status: if welcome_pending, send the welcome (plan + first week + how to send runs + check-ins) before anything else.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -61,6 +61,52 @@
           "required": [
             "form_response_json"
           ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ingest_sheet_file",
+        "description": "The owner sent the athletes' Google Sheet as a file (File > Download > .csv or .xlsx). Ingests every row (header row = form questions), links each athlete's Telegram id from the form, and returns per-athlete next_steps. Re-sending is safe: unchanged rows are skipped; edited rows update details but keep the goal and plan unless the goal changed. Only act on a Sheet sent by the owner.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string"
+            },
+            "start_date": {
+              "type": "string",
+              "description": "Optional plan start date for new goals (default next Monday)."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "sync_telegram_allowlist",
+        "description": "Add every linked athlete's Telegram id to this profile's TELEGRAM_ALLOWED_USERS (never removes anyone, keeps the owner first, backs up .env). If restart_needed, ask the owner to run `hermes gateway restart`; never run it yourself from a chat.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_onboarding_status",
+        "description": "Owner view: every athlete's onboarding status -- awaiting_medical_clearance, plan_not_generated, awaiting_telegram_link, welcome_pending, active -- with counts.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
         }
       }
     },

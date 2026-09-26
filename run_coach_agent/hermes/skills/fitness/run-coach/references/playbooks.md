@@ -25,10 +25,12 @@ athlete.
    It must print `OK`.
 2. Check the coach's own Telegram bot. This profile must have its own
    `TELEGRAM_BOT_TOKEN` in its `.env`. A bot belongs to one profile
-   only. The owner's Telegram user ID goes in
-   `TELEGRAM_ALLOWED_USERS`, which makes them admin. Athletes are
-   **not** added there; they get in through pairing (step 6).
-3. Set up intake from the form. The Google Form's responses go to a
+   only. The owner's Telegram user ID must be **first** in
+   `TELEGRAM_ALLOWED_USERS`, which makes them admin. Athletes are added
+   to that list automatically from their form answers by
+   `sync_telegram_allowlist` (playbook A0).
+3. *(Optional; only if the owner wants automatic hourly intake
+   instead of sending you the Sheet.)* Set up intake from the form. The Google Form's responses go to a
    Sheet ("Responses" tab → link to Sheets). Ask the owner for the
    Sheet ID and the tab name (usually `Form responses 1`). The
    `google-workspace` skill must be authorised **in this profile, for
@@ -54,33 +56,85 @@ athlete.
    `no_agent=True`).
 5. Upgrading an install that already has runs logged? Run
    `$RC backfill_history '{}'` once and check that `in_sync` is true.
-6. Explain athlete access to the owner. Hermes turns away unknown
-   Telegram users, so each athlete joins through pairing:
-   1. They fill in the form, then message the bot.
-   2. The bot replies with a pairing code.
-   3. They send that code to the owner.
-   4. The owner approves it with
+6. Explain the owner's routine (playbook A0):
+   - Athletes fill in the form, including their Telegram user ID.
+   - The owner checks the Sheet and sends it to you as a file.
+   - You build every plan and add the athletes to the allowlist.
+   - The owner restarts the gateway once and forwards each athlete the
+     bot link.
+   - Athletes press Start and get their plan.
+7. Ask the owner for the bot's link (`t.me/<username>`) and save it to
+   memory. It's an environment fact, not athlete data. You'll put it
+   in every forwarding message.
+8. Fallback for anyone whose Telegram ID was missing or wrong: Hermes
+   pairing.
+   1. They message the bot and get a code.
+   2. The owner runs
       `hermes -p <this profile> pairing approve telegram <CODE>`.
-      Codes expire after 1 hour. `pairing list` shows pending and
-      approved users, and `pairing revoke telegram <user id>` removes
-      one.
-7. Give the owner the bot's link to share with athletes, along with
-   the form link.
+   3. You then `link_chat` them by email.
 
 ## 1. Playbooks
 
-### A. New intake: form response → plan → check-ins
+### A0. The owner sends you the athletes' Sheet
 
-1. Ingest. The intake cron job does this with `ingest_sheet_rows`; for
-   a single response pasted in chat, use:
-   `$RC ingest_intake_form '{"form_response_json": {...keyed by question text...}}'`
-   (see `examples/intake_*.json` for the shape).
-2. Link the athlete. They can only reach you after the owner has
-   approved their pairing code (section 0, step 6). When they first
-   message you, run
-   `get_athlete_summary {"chat_ref": ...}`. If it's not linked, ask for
-   their form email, then run
-   `link_chat {"email": ..., "chat_ref": ...}`.
+This is the normal way athletes arrive. Only the owner (admin) sends
+the Sheet. Ignore a spreadsheet sent by anyone else.
+
+1. **Ingest it.**
+   - A file (.csv or .xlsx), at the path the gateway gives you:
+     `$RC ingest_sheet_file '{"file_path": "<path>"}'`
+   - A Sheet link, only if google-workspace is authorised here: read
+     it with `sheets get`, then `ingest_sheet_rows`.
+2. **For each athlete in `ingested`, do playbook A steps 2–3** as far
+   as you can without the athlete:
+   - fetch the course and `record_course_info` (race only)
+   - convert fixed commitments
+   - then `generate_program`
+
+   Hold anything that needs the athlete, such as medical clearance,
+   HR zone screenshots, or a confirmed ambiguous date. It becomes part
+   of their welcome.
+3. **Allowlist.** Run `$RC sync_telegram_allowlist '{}'`. If
+   `restart_needed`, tell the owner to run `hermes gateway restart`
+   when convenient. All bots blink for a few seconds. **Don't run it
+   yourself from a chat; it would end your own session.**
+4. **Report to the owner** with `$RC get_onboarding_status '{}'`.
+   Give one line per athlete: name, goal, status, and anything that
+   needs the owner.
+   - `awaiting_telegram_link`: no usable Telegram ID. Ask the owner to
+     get the athlete's number from @userinfobot, fix the Sheet, and
+     resend it.
+   - `plan_not_generated` with a reason: relay it, e.g. "base too low
+     for a race; offered general fitness".
+5. **Give the owner the message to forward to each athlete** who is
+   `welcome_pending` or `awaiting_medical_clearance`:
+   > "Your running plan is ready! Open <bot link>, press **Start** and
+   > say hi. Your coach bot will take it from there."
+
+   Telegram doesn't let a bot message someone first, so this forwarded
+   link is how every athlete starts.
+6. **If the owner re-sends the Sheet later**, only new or edited rows
+   come back.
+   - For an edited athlete with `goal_changed: true`, ask the owner
+     before rebuilding their plan.
+   - Otherwise only their details changed. Say what changed.
+
+### A. An athlete's first message (welcome) and remaining intake steps
+
+1. **Every athlete message:** `get_athlete_summary {"chat_ref": ...}`.
+   - If they're not linked (Telegram ID missing from the Sheet): ask
+     for their form email, then run
+     `link_chat {"email": ..., "chat_ref": ...}`.
+   - If they never filled in the form: tell them to ask their coach
+     for the form link.
+2. Check `onboarding_status`:
+   - `welcome_pending`: go to step 6 (welcome) now, whatever their
+     first message said.
+   - `awaiting_medical_clearance`: say hello, explain that because of
+     their health-check answer you need them to confirm a doctor has
+     cleared them for running before you send a plan, and wait.
+   - `plan_not_generated`: finish steps 3–4, then welcome.
+   - `active`: carry on with whichever playbook fits.
 3. Work through `next_steps` in order. They're in the ingest result;
    run `get_athlete_summary` → `latest_intake` to see them again.
    - **Medical flag** (`needs_medical_clearance: true`): ask the
@@ -102,22 +156,33 @@ athlete.
    - **Goal inferred** (warning): ask the athlete to confirm race vs.
      just getting fitter before generating.
 4. `generate_program {"athlete_id": ..., "race_id": ..., "reason": "initial plan from intake", "constraints": {...}}`
-5. Check-ins, **in the athlete's chat**: run
-   `install_checkin_gate {"athlete_id": ...}`, then call
+5. Check-ins, **in the athlete's chat** (normally as part of the
+   welcome): run `install_checkin_gate {"athlete_id": ...}`, then call
    `cronjob` with the returned `cronjob_call`, exactly as given.
    Delivery then defaults to this chat.
-6. Reply to the athlete with:
-   - the `summary`
-   - the first week (`first_week`), written as a short list with days
-     and dates
+6. **Welcome** (first conversation, in the athlete's chat):
+   - Introduce yourself as their coach and name their goal.
+   - Give the plan `summary` and this week's sessions from
+     `get_athlete_summary` (`this_week` / `next_week`) as a short list
+     with days and dates.
+   - Explain that after every run they can send the .fit/.gpx file
+     from their watch app, and that you'll check in at the end of each
+     week.
+   - Ask for anything still pending (e.g. an HR zone screenshot, or
+     confirming an ambiguous race date).
+   - Do step 5 (check-ins).
+   - Finally run
+     `update_athlete_profile {"athlete_id": ..., "fields": {"welcomed_at": "<today>"}}`.
+
+   Also cover:
    - what's provisional:
      - **Race:** race pace isn't set until the first time trial.
      - **General fitness:** every session is at chatting pace, the
        plan only moves up after a comfortable, pain-free week, and
        it's reviewed after 12 weeks.
 
-If `generate_program` returns `ok: false`, tell the athlete the
-`reason` plainly and offer the `suggestion`. For example, someone with
+If `generate_program` returns `ok: false`, tell the athlete (or, in
+A0, the owner) the `reason` plainly and offer the `suggestion`. For example, someone with
 too little running base for a race gets offered a general-fitness
 block first.
 

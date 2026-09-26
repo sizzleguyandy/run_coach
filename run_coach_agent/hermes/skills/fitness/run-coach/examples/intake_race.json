@@ -1,6 +1,7 @@
 {
   "Name": "Alex Example",
   "Email": "alex@example.com",
+  "Your Telegram user ID (message @userinfobot on Telegram to get it)": "2222222222",
   "Current weight (kg)": "70",
   "Any current injuries or old injuries relevant to running": "None",
   "Fixed weekly commitments (gym days, work shifts, anything that can't move)": "Heavy legs gym session Mondays",
@@ -10,7 +11,9 @@
   "Race distance": "Half",
   "Official race website or entry page URL": "https://example.com/valley-half",
   "Race start time (if known)": "06:30",
-  "Health check — do any of these apply?": ["None of these"],
+  "Health check — do any of these apply?": [
+    "None of these"
+  ],
   "Longest run in the last 4 weeks (km)": "10",
   "Total running km in the last 4 weeks (roughly)": "100",
   "Best recent timed effort — distance": "5K",
@@ -18,7 +21,9 @@
   "Best recent timed effort — when": "3 weeks ago",
   "Do you use a running watch/app that shows heart rate zones?": "Yes",
   "Preferred long-run day": "Sunday",
-  "Days you'd rather avoid running entirely": ["Monday"],
+  "Days you'd rather avoid running entirely": [
+    "Monday"
+  ],
   "How should I send you your training file/spreadsheet?": "Google Sheet",
   "Anything else I should know?": ""
 }
