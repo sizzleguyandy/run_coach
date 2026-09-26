@@ -25,6 +25,7 @@ HR_DRIFT_STREAK_FOR_ACTION = 2   # this many flagged runs in a row -> the patter
 DISTANCE_SHORTFALL_PCT = 0.90    # actual/planned below this -> flag
 MISSED_RUN_STREAK_FOR_ACTION = 2 # consecutive missed sessions of the same type -> raise it
 VOLUME_JUMP_WARN_PCT = 0.10      # week-over-week growth above this -> note it (not necessarily wrong)
+GENERAL_FITNESS_VOLUME_JUMP_WARN_PCT = 0.05  # general-fitness blocks ramp at half the race-build rate
 
 
 @dataclass
@@ -36,6 +37,7 @@ class RunComparison:
     hr_drift_delta: float | None
     hr_drift_flagged: bool
     pace_vs_prescribed_sec_per_km: float | None
+    duration_pct_of_plan: float | None = None
     notes: list[str] = field(default_factory=list)
 
 
@@ -44,7 +46,7 @@ def compare_run_to_program(run_log_row: dict, program_row: dict | None) -> RunCo
     to (matching itself -- nearest date + session type -- is a
     separate, simpler function; do it before calling this)."""
     notes = []
-    distance_delta = distance_pct = pace_delta = None
+    distance_delta = distance_pct = pace_delta = duration_pct = None
 
     if program_row and program_row.get('prescribed_distance_km'):
         planned = program_row['prescribed_distance_km']
@@ -55,6 +57,22 @@ def compare_run_to_program(run_log_row: dict, program_row: dict | None) -> RunCo
             if distance_pct < DISTANCE_SHORTFALL_PCT:
                 notes.append(f"came up short: {actual:.2f}km vs {planned:.2f}km planned "
                              f"({distance_pct*100:.0f}%)")
+
+    # General-fitness plans are prescribed in minutes, not km. Compare
+    # elapsed time (walk breaks count -- they're part of the session).
+    if (program_row and not program_row.get('prescribed_distance_km')
+            and program_row.get('prescribed_duration_min')):
+        planned_min = program_row['prescribed_duration_min']
+        actual_min = run_log_row.get('elapsed_time_min') or run_log_row.get('moving_time_min')
+        if actual_min is not None:
+            duration_pct = actual_min / planned_min
+            if duration_pct < DISTANCE_SHORTFALL_PCT:
+                notes.append(f"came up short: {actual_min:.0f} min vs {planned_min:.0f} min "
+                             f"planned ({duration_pct*100:.0f}%)")
+            elif duration_pct > 1 + GENERAL_FITNESS_VOLUME_JUMP_WARN_PCT * 2:
+                notes.append(f"went longer than planned: {actual_min:.0f} min vs "
+                             f"{planned_min:.0f} min. On a slow-ramp plan, doing more than "
+                             f"prescribed is the thing to watch, not to praise.")
 
     if program_row and program_row.get('prescribed_hr_high') and run_log_row.get('avg_hr'):
         cap = program_row['prescribed_hr_high']
@@ -81,6 +99,7 @@ def compare_run_to_program(run_log_row: dict, program_row: dict | None) -> RunCo
         hr_drift_delta=hr_drift,
         hr_drift_flagged=hr_drift_flagged,
         pace_vs_prescribed_sec_per_km=pace_delta,
+        duration_pct_of_plan=duration_pct,
         notes=notes,
     )
 
@@ -98,8 +117,9 @@ def update_signal_state(current_state: dict | None, comparison: RunComparison,
     """
     is_flagged = {
         'long_run_hr_drift': comparison.hr_drift_flagged,
-        'distance_shortfall': (comparison.distance_pct_of_plan is not None
-                                and comparison.distance_pct_of_plan < DISTANCE_SHORTFALL_PCT),
+        'distance_shortfall': any(pct is not None and pct < DISTANCE_SHORTFALL_PCT
+                                  for pct in (comparison.distance_pct_of_plan,
+                                              comparison.duration_pct_of_plan)),
     }.get(signal_name, False)
 
     streak = (current_state['current_streak'] + 1) if (current_state and is_flagged) else (1 if is_flagged else 0)
@@ -124,17 +144,23 @@ def check_program_revision_staleness(trigger_revision_id: str, current_revision_
     return trigger_revision_id != current_revision_id
 
 
-def weekly_volume_check(this_week_km: float, last_week_km: float) -> dict:
+def weekly_volume_check(this_week_km: float, last_week_km: float,
+                        goal_type: str = 'race') -> dict:
     """Flag (not block) week-over-week jumps above the guideline.
     A jump above threshold isn't automatically wrong -- e.g. a
     fourth weekly run returning after a minimum-session-length floor
     forces a step -- but the agent should know about it and be able
     to explain why, rather than silently generating an aggressive
-    ramp."""
+    ramp.
+
+    For goal_type='general_fitness', pass weekly MINUTES instead of km
+    (those plans are time-based) -- the tighter 5% threshold applies."""
     if last_week_km <= 0:
         return {'pct_change': None, 'flagged': False}
+    threshold = (GENERAL_FITNESS_VOLUME_JUMP_WARN_PCT if goal_type == 'general_fitness'
+                 else VOLUME_JUMP_WARN_PCT)
     pct_change = (this_week_km - last_week_km) / last_week_km
-    return {'pct_change': pct_change, 'flagged': pct_change > VOLUME_JUMP_WARN_PCT}
+    return {'pct_change': pct_change, 'flagged': pct_change > threshold}
 
 
 def match_run_to_program_row(run_recorded_at: str, run_distance_km: float,

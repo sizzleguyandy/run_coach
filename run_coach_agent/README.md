@@ -14,6 +14,7 @@ numbers exactly — see the test commands below).
 | `fit_parser.py` | Zero-dependency FIT file parser |
 | `gpx_parser.py` | Zero-dependency GPX file parser |
 | `analysis.py` | Deterministic comparison engine: plan-vs-actual, HR-drift detection, streak tracking, trigger staleness checking |
+| `general_fitness.py` | Program generator for athletes with no event ("I just want to get fitter"): time-based, walk/run ladder or +5%/week easy running, cutback every 3rd week |
 | `google_form_spec.md` | Exact field list for the intake form, mapped to schema columns |
 | `AGENT_INSTRUCTIONS.md` | The system prompt and behavioral rules for the agent, plus the reasoning for each rule |
 | `tools_schema.json` | Function-calling tool definitions wiring the agent to the code above |
@@ -43,16 +44,22 @@ conn.commit()
 python3 fit_parser.py /path/to/run.fit
 python3 gpx_parser.py /path/to/run.gpx
 
-# 3. Wire tools_schema.json's functions to thin wrappers around
+# 3. Preview a general-fitness (no race) plan
+python3 general_fitness.py
+
+# 4. Wire tools_schema.json's functions to thin wrappers around
 #    fit_parser.parse_fit() / gpx_parser.parse_gpx() / analysis.py's
 #    functions plus your platform's DB access and scheduling primitives.
 ```
 
 ## What you still need to build
 
-- The program generator itself (`generate_program`) — the rules it must
+- The race program generator itself (`generate_program` for
+  `goal_type='race'`) — the rules it must
   follow are in `AGENT_INSTRUCTIONS.md`, but the actual week-by-week
-  session construction is specific to your training philosophy. This
+  session construction is specific to your training philosophy.
+  The no-race "general fitness" option is already built in
+  `general_fitness.py`; route `goal_type='general_fitness'` to it. This
   kit gives you the guardrails (10% rule, cutback cadence, hill
   specificity, time-trial checkpoints), not a canned plan.
 - The DB access layer connecting `tools_schema.json`'s functions to

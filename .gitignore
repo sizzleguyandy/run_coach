@@ -52,6 +52,7 @@ check_*.py
 migrate_*.py
 *.html
 *.sql
+!run_coach_agent/schema.sql
 *.txt
 
 # Agent Gateway ships a real frontend and a real requirements file —

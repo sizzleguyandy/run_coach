@@ -5,7 +5,7 @@
       "type": "function",
       "function": {
         "name": "ingest_intake_form",
-        "description": "Process a new or updated Google Form submission. Writes/updates athlete_profile and creates a race_target row. Does NOT generate the program itself -- call generate_program separately once this returns, so a human (or the agent) can review the parsed intake first if desired.",
+        "description": "Process a new or updated Google Form submission. Writes/updates athlete_profile and creates a race_target row. The form's 'What are you training for?' branch sets race_target.goal_type: 'race', or 'general_fitness' when the athlete has no event and just wants to get fitter (race_name='General fitness', no race_date/distance, review_date = start + 12 weeks, baseline_continuous_run_min / baseline_weekly_run_min / health_screen_flags written to athlete_profile). Does NOT generate the program itself -- call generate_program separately once this returns, so a human (or the agent) can review the parsed intake first if desired. If health_screen_flags is non-empty, ask for medical clearance before calling generate_program.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -18,7 +18,9 @@
               "description": "URL or path to an uploaded HR zone screenshot/export, if the athlete provided one. Read this directly rather than trusting any manually-typed zone numbers elsewhere in the form."
             }
           },
-          "required": ["form_response_json"]
+          "required": [
+            "form_response_json"
+          ]
         }
       }
     },
@@ -26,14 +28,21 @@
       "type": "function",
       "function": {
         "name": "fetch_course_info",
-        "description": "Fetch a race's official page (and search the web if needed) to extract real distance, elevation gain, and terrain notes. Always call this during intake rather than relying on the athlete's own description of course difficulty -- athletes reliably underestimate or don't know elevation figures.",
+        "description": "Fetch a race's official page (and search the web if needed) to extract real distance, elevation gain, and terrain notes. Always call this during intake rather than relying on the athlete's own description of course difficulty -- athletes reliably underestimate or don't know elevation figures. Race goals only -- skip for goal_type='general_fitness', which has no course.",
         "parameters": {
           "type": "object",
           "properties": {
-            "course_url": {"type": "string"},
-            "race_name": {"type": "string", "description": "Used as a fallback web search query if course_url doesn't resolve or lacks elevation data."}
+            "course_url": {
+              "type": "string"
+            },
+            "race_name": {
+              "type": "string",
+              "description": "Used as a fallback web search query if course_url doesn't resolve or lacks elevation data."
+            }
           },
-          "required": ["race_name"]
+          "required": [
+            "race_name"
+          ]
         }
       }
     },
@@ -41,25 +50,62 @@
       "type": "function",
       "function": {
         "name": "generate_program",
-        "description": "Generate a full training program from athlete_profile + race_target and write it as a new program_revision with associated program rows. Applies the fixed rules from AGENT_INSTRUCTIONS.md (10% weekly growth cap, cutback cadence, time-trial checkpoints, hill-specificity if elevation_gain_m is significant). This is a code-backed generator the agent parameterizes, not a free-text generation -- the caller supplies preferences/constraints, the tool enforces the non-negotiable rules.",
+        "description": "Generate a full training program from athlete_profile + race_target and write it as a new program_revision with associated program rows. For goal_type='race' applies the fixed rules from AGENT_INSTRUCTIONS.md (10% weekly growth cap, cutback cadence, time-trial checkpoints, hill-specificity if elevation_gain_m is significant). For goal_type='general_fitness' calls general_fitness.generate_general_fitness_plan(): time-based, conversational effort only, walk/run ladder if the athlete can't run 20 min non-stop, otherwise max +5%/week (cap +10 min), cutback every 3rd week, no time trials or quality sessions. This is a code-backed generator the agent parameterizes, not a free-text generation -- the caller supplies preferences/constraints, the tool enforces the non-negotiable rules.",
         "parameters": {
           "type": "object",
           "properties": {
-            "athlete_id": {"type": "string"},
-            "race_id": {"type": "string"},
-            "reason": {"type": "string", "description": "Why this revision is being created, e.g. 'initial plan from intake' or 'rebuilt after time trial #1'."},
+            "athlete_id": {
+              "type": "string"
+            },
+            "race_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Why this revision is being created, e.g. 'initial plan from intake' or 'rebuilt after time trial #1'."
+            },
             "constraints": {
               "type": "object",
               "description": "Athlete-requested constraints to respect, e.g. whole-number distances, fixed weekday assignments, days per week range.",
               "properties": {
-                "whole_number_distances": {"type": "boolean"},
-                "min_days_per_week": {"type": "integer"},
-                "max_days_per_week": {"type": "integer"},
-                "fixed_long_run_day": {"type": "string"}
+                "whole_number_distances": {
+                  "type": "boolean"
+                },
+                "min_days_per_week": {
+                  "type": "integer"
+                },
+                "max_days_per_week": {
+                  "type": "integer"
+                },
+                "fixed_long_run_day": {
+                  "type": "string"
+                },
+                "sessions_per_week": {
+                  "type": "integer",
+                  "description": "General fitness only: 2 or 3 (a 4th is added by the generator later in the block, never requested up front)."
+                }
+              }
+            },
+            "general_fitness_start_level": {
+              "type": "object",
+              "description": "General fitness only, when regenerating after a week that wasn't completed comfortably: the athlete's CURRENT level, so they repeat it rather than progress. Never pass a higher level than the one they just did.",
+              "properties": {
+                "start_step": {
+                  "type": "integer",
+                  "description": "Walk/run ladder rung index (0-based) to restart from."
+                },
+                "start_weekly_min": {
+                  "type": "number",
+                  "description": "Weekly running minutes to restart from (continuous mode)."
+                }
               }
             }
           },
-          "required": ["athlete_id", "race_id", "reason"]
+          "required": [
+            "athlete_id",
+            "race_id",
+            "reason"
+          ]
         }
       }
     },
@@ -71,10 +117,22 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "file_path": {"type": "string"},
-            "file_format": {"type": "string", "enum": ["fit", "gpx", "auto"], "description": "Use 'auto' to detect from file extension/content."}
+            "file_path": {
+              "type": "string"
+            },
+            "file_format": {
+              "type": "string",
+              "enum": [
+                "fit",
+                "gpx",
+                "auto"
+              ],
+              "description": "Use 'auto' to detect from file extension/content."
+            }
           },
-          "required": ["file_path"]
+          "required": [
+            "file_path"
+          ]
         }
       }
     },
@@ -86,11 +144,21 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "athlete_id": {"type": "string"},
-            "run_recorded_at": {"type": "string", "description": "ISO timestamp from the parsed run file."},
-            "run_distance_km": {"type": "number"}
+            "athlete_id": {
+              "type": "string"
+            },
+            "run_recorded_at": {
+              "type": "string",
+              "description": "ISO timestamp from the parsed run file."
+            },
+            "run_distance_km": {
+              "type": "number"
+            }
           },
-          "required": ["athlete_id", "run_recorded_at"]
+          "required": [
+            "athlete_id",
+            "run_recorded_at"
+          ]
         }
       }
     },
@@ -98,14 +166,21 @@
       "type": "function",
       "function": {
         "name": "compare_run_to_program",
-        "description": "Deterministically compare a parsed run against its matched program row: distance delta, HR-drift flag, effort-vs-prescription. Backed by analysis.py. Returns structured notes -- read and relay these; do not re-derive your own comparison from the raw numbers.",
+        "description": "Deterministically compare a parsed run against its matched program row: distance delta (or duration delta for time-based general-fitness sessions), HR-drift flag, effort-vs-prescription. Backed by analysis.py. Returns structured notes -- read and relay these; do not re-derive your own comparison from the raw numbers.",
         "parameters": {
           "type": "object",
           "properties": {
-            "run_log_id": {"type": "string"},
-            "program_row_id": {"type": "string", "description": "May be null if match_run_to_program found nothing."}
+            "run_log_id": {
+              "type": "string"
+            },
+            "program_row_id": {
+              "type": "string",
+              "description": "May be null if match_run_to_program found nothing."
+            }
           },
-          "required": ["run_log_id"]
+          "required": [
+            "run_log_id"
+          ]
         }
       }
     },
@@ -117,11 +192,26 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "athlete_id": {"type": "string"},
-            "signal_name": {"type": "string", "enum": ["long_run_hr_drift", "distance_shortfall", "missed_easy_run_streak"]},
-            "run_log_id": {"type": "string"}
+            "athlete_id": {
+              "type": "string"
+            },
+            "signal_name": {
+              "type": "string",
+              "enum": [
+                "long_run_hr_drift",
+                "distance_shortfall",
+                "missed_easy_run_streak"
+              ]
+            },
+            "run_log_id": {
+              "type": "string"
+            }
           },
-          "required": ["athlete_id", "signal_name", "run_log_id"]
+          "required": [
+            "athlete_id",
+            "signal_name",
+            "run_log_id"
+          ]
         }
       }
     },
@@ -133,11 +223,21 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "athlete_id": {"type": "string"},
-            "start_date": {"type": "string"},
-            "end_date": {"type": "string"}
+            "athlete_id": {
+              "type": "string"
+            },
+            "start_date": {
+              "type": "string"
+            },
+            "end_date": {
+              "type": "string"
+            }
           },
-          "required": ["athlete_id", "start_date", "end_date"]
+          "required": [
+            "athlete_id",
+            "start_date",
+            "end_date"
+          ]
         }
       }
     },
@@ -149,14 +249,40 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "athlete_id": {"type": "string"},
-            "race_id": {"type": "string"},
-            "reason": {"type": "string"},
-            "changed_by": {"type": "string", "enum": ["agent", "athlete_request"]},
-            "summary": {"type": "string", "description": "Short human-readable diff, e.g. 'Held Sunday long run flat at 9km through weeks 3-4 to absorb the 4th weekly run returning.'"},
-            "affected_program_row_ids": {"type": "array", "items": {"type": "string"}}
+            "athlete_id": {
+              "type": "string"
+            },
+            "race_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "changed_by": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "athlete_request"
+              ]
+            },
+            "summary": {
+              "type": "string",
+              "description": "Short human-readable diff, e.g. 'Held Sunday long run flat at 9km through weeks 3-4 to absorb the 4th weekly run returning.'"
+            },
+            "affected_program_row_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
-          "required": ["athlete_id", "race_id", "reason", "changed_by", "summary"]
+          "required": [
+            "athlete_id",
+            "race_id",
+            "reason",
+            "changed_by",
+            "summary"
+          ]
         }
       }
     },
@@ -168,9 +294,13 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "trigger_id": {"type": "string"}
+            "trigger_id": {
+              "type": "string"
+            }
           },
-          "required": ["trigger_id"]
+          "required": [
+            "trigger_id"
+          ]
         }
       }
     },
@@ -182,15 +312,38 @@
         "parameters": {
           "type": "object",
           "properties": {
-            "athlete_id": {"type": "string"},
-            "trigger_type": {"type": "string", "enum": ["scheduled_date", "after_program_row", "after_signal_streak"]},
-            "fires_at_date": {"type": "string"},
-            "depends_on_program_row": {"type": "string"},
-            "depends_on_signal": {"type": "string"},
-            "depends_on_streak_count": {"type": "integer"},
-            "prompt_template": {"type": "string"}
+            "athlete_id": {
+              "type": "string"
+            },
+            "trigger_type": {
+              "type": "string",
+              "enum": [
+                "scheduled_date",
+                "after_program_row",
+                "after_signal_streak"
+              ]
+            },
+            "fires_at_date": {
+              "type": "string"
+            },
+            "depends_on_program_row": {
+              "type": "string"
+            },
+            "depends_on_signal": {
+              "type": "string"
+            },
+            "depends_on_streak_count": {
+              "type": "integer"
+            },
+            "prompt_template": {
+              "type": "string"
+            }
           },
-          "required": ["athlete_id", "trigger_type", "prompt_template"]
+          "required": [
+            "athlete_id",
+            "trigger_type",
+            "prompt_template"
+          ]
         }
       }
     }
