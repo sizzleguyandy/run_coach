@@ -42,6 +42,24 @@ gateway such as Telegram.
 | `scripts/run-coach-backup.py` | Cron script (no-agent) | Daily backup of both databases, keeps 30 of each |
 | `scripts/run-coach-due-<id>.py` | Cron pre-run gate | Generated per athlete; only wakes the agent when a check-in is due |
 
+## Safety checks before any plan
+
+- **Number checks** run the moment a form comes in: swapped answers,
+  pounds instead of kg, implausible distances, a race too soon or too
+  far off. A race date in the past rejects the row.
+- **Free-text health review.** If an athlete writes something like
+  "had a stent last year" but ticks "None of these", a keyword net
+  flags it. An **independent reviewer agent** (Hermes `delegate_task`)
+  reads everything they wrote, and the coach does too; the more
+  cautious answer wins. "Needs clearance" blocks the plan exactly like
+  a ticked health box.
+- **Race check.** The coach and a second agent each look the race up
+  from different sources. Date, distance and elevation must agree with
+  each other and the form, otherwise you decide.
+
+The plan builder refuses until these are done. They run once per new
+athlete, not on every message.
+
 ## Plans that readjust every week
 
 The first plan is built from the form:
@@ -162,7 +180,7 @@ Created by the agent during setup and onboarding, following
 
 ```bash
 cd hermes/skills/fitness/run-coach/scripts
-python3 -m unittest discover -s tests        # 22 tests (incl. full athlete lifecycles, Sheet onboarding, trends, history)
+python3 -m unittest discover -s tests        # 29 tests (incl. safety checks, full athlete lifecycles, Sheet onboarding, trends, history)
 python3 general_fitness.py                   # preview a general-fitness block
 python3 race_plan.py                         # preview a race build
 ```

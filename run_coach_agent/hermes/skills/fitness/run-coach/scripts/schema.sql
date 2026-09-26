@@ -42,6 +42,8 @@ CREATE TABLE athlete_profile (
     medical_clearance_at TEXT,                   -- ISO date the athlete confirmed medical clearance (only needed if health_screen_flags is non-empty)
     chat_ref             TEXT UNIQUE,            -- chat identity, e.g. 'telegram:<user id>'; set from the form's Telegram ID or by link_chat
     welcomed_at          TEXT,                   -- when the coach sent its first message (welcome + plan) to the athlete
+    safety_screen_status TEXT,                   -- free-text health review: 'pending_review' | 'clear' | 'caution' | 'needs_clearance' (NULL = before this check existed)
+    safety_screen_json   TEXT,                   -- keyword hits, reviewer + coach outcomes, reasons
     distance_unit        TEXT DEFAULT 'km',      -- 'km' | 'mi' -- convert at the edges, store km internally regardless
 
     created_at           TEXT NOT NULL,
@@ -73,6 +75,8 @@ CREATE TABLE race_target (
     course_url          TEXT,                    -- source for elevation/terrain -- fetch, don't ask the athlete to describe it
     elevation_gain_m    REAL,
     terrain_notes       TEXT,                    -- "firm farm paths, not trail but rougher than road"
+    verification_status TEXT,                    -- race info check: 'unverified' | 'verified' | 'mismatch' | 'owner_confirmed' (NULL = before this check existed)
+    verification_json   TEXT,                    -- both sources, differences, who confirmed
     status              TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'dropped' | 'completed'
     superseded_by        TEXT REFERENCES race_target(race_id),  -- set when a new race target replaces this one
     created_at           TEXT NOT NULL,

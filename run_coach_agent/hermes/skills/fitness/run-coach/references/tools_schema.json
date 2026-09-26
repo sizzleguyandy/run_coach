@@ -41,7 +41,7 @@
       "type": "function",
       "function": {
         "name": "ingest_intake_form",
-        "description": "Process a Google Form submission. Maps question text to fields, writes/updates athlete_profile, stores the raw response, and creates the goal row (replacing any active goal). The 'What are you training for?' answer sets goal_type: 'race', or 'general_fitness' when the athlete has no event and just wants to get fitter. Returns next_steps -- do them in order (medical clearance, course info, HR zones, fixed commitments) BEFORE generate_program. Does not generate the plan itself.",
+        "description": "Process a Google Form submission. Maps question text to fields, writes/updates athlete_profile, stores the raw response, and creates the goal row (replacing any active goal). The 'What are you training for?' answer sets goal_type: 'race', or 'general_fitness' when the athlete has no event and just wants to get fitter. Returns next_steps -- do them in order (medical clearance, course info, HR zones, fixed commitments) BEFORE generate_program. Does not generate the plan itself. Runs number sanity checks (warnings; a race date in the past rejects the row) and queues the free-text safety review and race check.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -68,7 +68,7 @@
       "type": "function",
       "function": {
         "name": "ingest_sheet_file",
-        "description": "The owner sent the athletes' Google Sheet as a file (File > Download > .csv or .xlsx). Ingests every row (header row = form questions), links each athlete's Telegram id from the form, and returns per-athlete next_steps. Re-sending is safe: unchanged rows are skipped; edited rows update details but keep the goal and plan unless the goal changed. Only act on a Sheet sent by the owner.",
+        "description": "The owner sent the athletes' Google Sheet as a file (File > Download > .csv or .xlsx). Ingests every row (header row = form questions), links each athlete's Telegram id from the form, and returns per-athlete next_steps. Re-sending is safe: unchanged rows are skipped; edited rows update details but keep the goal and plan unless the goal changed. Only act on a Sheet sent by the owner. Runs number sanity checks (warnings; a race date in the past rejects the row) and queues the free-text safety review and race check.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -238,8 +238,183 @@
     {
       "type": "function",
       "function": {
+        "name": "get_review_tasks",
+        "description": "Second-opinion tasks this athlete still needs before a plan: a free-text safety review and/or an independent race check. Returns delegate_call -- pass it to delegate_task exactly (the tasks carry their instructions and output_schema, and never include the athlete's identity).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "athlete_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "record_safety_review",
+        "description": "Store the free-text safety review: reviewer_outcome (the delegate's answer) and own_outcome (your own reading). The more cautious wins; needs_clearance adds a health flag so the medical-clearance gate applies. Clearing text with medical keywords requires notes explaining why.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "reviewer_outcome": {
+              "type": "string",
+              "enum": [
+                "clear",
+                "caution",
+                "needs_clearance"
+              ]
+            },
+            "own_outcome": {
+              "type": "string",
+              "enum": [
+                "clear",
+                "caution",
+                "needs_clearance"
+              ]
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "notes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "athlete_id",
+            "reviewer_outcome",
+            "own_outcome"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "verify_race_info",
+        "description": "Compare two independently found race descriptions (primary = yours, secondary = the delegate's, from different sources) with each other and the form. verified -> course details stored, plan can be built; mismatch -> differences for the owner.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "race_id": {
+              "type": "string"
+            },
+            "primary": {
+              "type": "object",
+              "properties": {
+                "race_date": {
+                  "type": "string"
+                },
+                "distance_km": {
+                  "type": "number"
+                },
+                "elevation_gain_m": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "terrain": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "description": "URL the details came from"
+                }
+              },
+              "required": [
+                "race_date",
+                "distance_km",
+                "source"
+              ]
+            },
+            "secondary": {
+              "type": "object",
+              "properties": {
+                "race_date": {
+                  "type": "string"
+                },
+                "distance_km": {
+                  "type": "number"
+                },
+                "elevation_gain_m": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "terrain": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "description": "URL the details came from"
+                }
+              },
+              "required": [
+                "race_date",
+                "distance_km",
+                "source"
+              ]
+            }
+          },
+          "required": [
+            "race_id",
+            "primary",
+            "secondary"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "confirm_race_info",
+        "description": "The owner settles the race details after a mismatch (or when no source has them). Only use values the owner gave you; note says how they checked.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "race_id": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            },
+            "race_date": {
+              "type": "string"
+            },
+            "distance_km": {
+              "type": "number"
+            },
+            "elevation_gain_m": {
+              "type": "number"
+            },
+            "terrain_notes": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "race_id",
+            "note"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "generate_program",
-        "description": "Build the plan with deterministic code and write it as a new program_revision (superseding pending future sessions and cancelling the old plan's auto check-ins). goal_type='race' -> race_plan.py: max +10%/week, cutback every 4th week, growth onto the long run, 2 time trials, hill repeats on hilly courses, taper, NO race pace. goal_type='general_fitness' -> general_fitness.py: minutes not km, conversational effort only, walk/run ladder if they can't run 20 min non-stop, else max +5%/week (cap +10 min), cutback every 3rd week, 12-week block. Also creates check-ins: end of every week, after each time trial, end of a general-fitness block. Returns ok:false with a reason + suggestion if the athlete isn't ready (low base, not enough weeks, medical clearance missing) -- relay that honestly; don't work around it. Constraints are saved with the plan and reused automatically when omitted (weekly reviews, repeats), so whole-km distances, days/week and avoid days survive every rebuild. Race days/week defaults to the athlete's form answer. Never creates sessions dated before today.",
+        "description": "Build the plan with deterministic code and write it as a new program_revision (superseding pending future sessions and cancelling the old plan's auto check-ins). goal_type='race' -> race_plan.py: max +10%/week, cutback every 4th week, growth onto the long run, 2 time trials, hill repeats on hilly courses, taper, NO race pace. goal_type='general_fitness' -> general_fitness.py: minutes not km, conversational effort only, walk/run ladder if they can't run 20 min non-stop, else max +5%/week (cap +10 min), cutback every 3rd week, 12-week block. Also creates check-ins: end of every week, after each time trial, end of a general-fitness block. Returns ok:false with a reason + suggestion if the athlete isn't ready (low base, not enough weeks, medical clearance missing) -- relay that honestly; don't work around it. Constraints are saved with the plan and reused automatically when omitted (weekly reviews, repeats), so whole-km distances, days/week and avoid days survive every rebuild. Race days/week defaults to the athlete's form answer. Never creates sessions dated before today. Refuses (ok:false) until the free-text safety review is recorded and, for races, the race is verified or owner-confirmed.",
         "parameters": {
           "type": "object",
           "properties": {

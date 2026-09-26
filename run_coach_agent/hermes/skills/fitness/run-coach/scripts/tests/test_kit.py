@@ -22,6 +22,7 @@ sys.path.insert(0, KIT)
 
 import analysis  # noqa: E402
 import coach_tools as ct  # noqa: E402
+from tests.helpers import complete_reviews  # noqa: E402
 from general_fitness import generate_general_fitness_plan  # noqa: E402
 from race_plan import generate_race_plan  # noqa: E402
 
@@ -44,6 +45,8 @@ class ToolTestCase(unittest.TestCase):
         os.environ.pop("COACH_TODAY", None)
 
     def call(self, name, **args):
+        if name == "generate_program":
+            complete_reviews(args["athlete_id"])
         out = ct.call_tool(name, args)
         self.assertTrue(out.get("ok"), f"{name} failed: {out}")
         return out
@@ -110,6 +113,7 @@ class GeneralFitnessFlow(ToolTestCase):
         form["Health check — do any of these apply?"] = ["A heart condition or high blood pressure"]
         intake = self.call("ingest_intake_form", form_response_json=form)
         self.assertTrue(intake["needs_medical_clearance"])
+        complete_reviews(intake["athlete_id"])
         blocked = ct.call_tool("generate_program", {"athlete_id": intake["athlete_id"],
                                                     "race_id": intake["race_id"], "reason": "initial"})
         self.assertFalse(blocked["ok"])
@@ -175,6 +179,7 @@ class RaceFlow(ToolTestCase):
         form = load("intake_race.json")
         form["Total running km in the last 4 weeks (roughly)"] = "8"
         intake = self.call("ingest_intake_form", form_response_json=form)
+        complete_reviews(intake["athlete_id"])
         out = ct.call_tool("generate_program", {"athlete_id": intake["athlete_id"],
                                                 "race_id": intake["race_id"], "reason": "initial"})
         self.assertFalse(out["ok"])

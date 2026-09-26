@@ -34,6 +34,7 @@ from datetime import date, datetime, timedelta, timezone
 import analysis
 import history
 import plan_review
+import safety_checks
 from fit_parser import parse_fit
 from general_fitness import (DEFAULT_WEEKS as GF_WEEKS, WALK_RUN_LADDER, _walk_run_label,
                              generate_general_fitness_plan)
@@ -101,6 +102,12 @@ def connect():
     if cols and "welcomed_at" not in cols:
         conn.execute("ALTER TABLE athlete_profile ADD COLUMN welcomed_at TEXT")
         conn.commit()
+    for table, col in (("athlete_profile", "safety_screen_status"), ("athlete_profile", "safety_screen_json"),
+                       ("race_target", "verification_status"), ("race_target", "verification_json")):
+        tcols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if tcols and col not in tcols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+            conn.commit()
     rcols = {r[1] for r in conn.execute("PRAGMA table_info(program_revision)")}
     if rcols and "constraints_json" not in rcols:
         conn.execute("ALTER TABLE program_revision ADD COLUMN constraints_json TEXT")
@@ -359,6 +366,21 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
         warnings.append(f"The 'What are you training for?' answer was missing; inferred "
                         f"goal_type={goal_type!r}. Confirm this with the athlete in your first reply.")
 
+    # Sanity checks on the numbers, before anything is written.
+    pre_iso = pre_dist = None
+    if goal_type == "race":
+        pre_dist = _distance_km(norm.get("race_distance"))
+        try:
+            pre_iso, _ = _parse_date(norm.get("race_date"))
+        except ToolError:
+            pre_iso = None
+    checks = safety_checks.intake_checks(norm, goal_type, pre_iso, pre_dist, _today())
+    blocks = [c["message"] for c in checks if c["level"] == "block"]
+    if blocks:
+        raise ToolError(" ".join(blocks) + " Fix this row in the Sheet and send it again.")
+    warnings += [c["message"] for c in checks]
+    norm["checks"] = checks
+
     health = norm.get("health_screen") or []
     if isinstance(health, str):
         health = [h.strip() for h in re.split(r"[,;]", health) if h.strip()]
@@ -376,6 +398,17 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
         re.sub(r"[^a-z0-9]+", "-", str(norm.get("name") or norm["email"]).lower()).strip("-")[:24]
         + "-" + uuid.uuid4().hex[:6])
 
+    # Free-text health screen: anything the athlete wrote gets an independent review.
+    screen_text = safety_checks.free_text(norm)
+    old_screen = json.loads((existing or {}).get("safety_screen_json") or "{}")
+    screen_changed = not existing or old_screen.get("text") != screen_text
+    if screen_changed:
+        hits = safety_checks.keyword_hits(screen_text) if screen_text else []
+        screen_status = "pending_review" if screen_text else "clear"
+        screen_json = json.dumps({"text": screen_text, "keyword_hits": hits})
+    # Flags added by a free-text review survive a re-sent Sheet row.
+    kept = [f for f in json.loads((existing or {}).get("health_screen_flags") or "[]")
+            if f.startswith("free text:")] if not screen_changed else []
     profile = {
         "name": norm.get("name") or (existing or {}).get("name") or norm["email"],
         "email": norm.get("email"),
@@ -383,7 +416,9 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
         "weight_source": "self_reported" if norm.get("weight_kg") else None,
         "weight_updated_at": now[:10] if norm.get("weight_kg") else None,
         "injury_history": norm.get("injury_history"),
-        "health_screen_flags": json.dumps(health),
+        "health_screen_flags": json.dumps(health + kept),
+        "safety_screen_status": screen_status if screen_changed else None,
+        "safety_screen_json": screen_json if screen_changed else None,
         "baseline_continuous_run_min": _band(norm.get("continuous_run"), 0) if "continuous_run" in norm else None,
         "baseline_weekly_run_min": _band(norm.get("weekly_run_minutes"), 15) if "weekly_run_minutes" in norm else None,
     }
@@ -425,7 +460,8 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
         goal = dict(race_id=race_id, athlete_id=athlete_id, goal_type="race",
                     race_name=norm.get("race_name") or f"{dist:g} km race",
                     race_date=race_iso, start_time_local=norm.get("race_start_time"),
-                    distance_km=dist, course_url=norm.get("course_url"), created_at=now)
+                    distance_km=dist, course_url=norm.get("course_url"), verification_status="unverified",
+                    created_at=now)
     else:
         goal = dict(race_id=race_id, athlete_id=athlete_id, goal_type="general_fitness",
                     race_name="General fitness",
@@ -460,14 +496,20 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
     conn.commit()
 
     # Tell the agent exactly what's left to do.
+    if screen_changed and screen_text:
+        next_steps.append("SAFETY REVIEW: the athlete wrote free text (injuries / anything else). Call "
+                          "get_review_tasks, run the reviewer it gives you with delegate_task, read the text "
+                          "yourself too, then record_safety_review. The plan waits until this is done.")
     if health:
         next_steps.append("MEDICAL: health check flagged " + ", ".join(health) + ". Ask the athlete to get "
                           "medical clearance; once they confirm, call update_athlete_profile with "
                           "medical_clearance_at. generate_program will refuse until then.")
     if goal_type == "race":
-        next_steps.append("Fetch the course page yourself (web tool) -- "
-                          + (goal["course_url"] or f"search for {goal['race_name']!r}")
-                          + " -- then call record_course_info with elevation gain and terrain.")
+        if not same_goal:
+            next_steps.append("RACE CHECK: call get_review_tasks and follow it -- look up the race yourself "
+                              "(source 1), have a separate agent look it up independently (source 2), then "
+                              "verify_race_info. The plan waits until the race details are verified or the "
+                              "owner confirms them.")
     if hr_zone_file_url or norm.get("hr_zone_upload"):
         next_steps.append(f"Read the HR zone upload ({hr_zone_file_url or norm.get('hr_zone_upload')}) "
                           f"yourself, work out whether it's %max or %LTHR, and call "
@@ -587,6 +629,17 @@ def generate_program(athlete_id, race_id, reason, constraints=None, general_fitn
         raise ToolError(f"no goal {race_id!r} for athlete {athlete_id!r}")
     if goal["status"] != "active":
         raise ToolError(f"goal {race_id!r} is {goal['status']!r}; generate for the active goal")
+    if athlete.get("safety_screen_status") == "pending_review":
+        return {"ok": False, "reason": "the athlete's free-text answers haven't had their safety review yet",
+                "suggestion": "Call get_review_tasks, run the reviewer with delegate_task, then record_safety_review."}
+    if goal["goal_type"] == "race" and goal.get("verification_status") in ("unverified", "mismatch"):
+        return {"ok": False, "reason": ("the race details haven't been verified yet" if goal["verification_status"]
+                                        == "unverified" else "the two race sources disagree: " +
+                                        "; ".join(json.loads(goal.get("verification_json") or "{}")
+                                                  .get("differences", []))),
+                "suggestion": ("Call get_review_tasks and verify_race_info." if goal["verification_status"] ==
+                               "unverified" else "Show the owner the differences; they confirm the right details "
+                                                 "with confirm_race_info.")}
     flags = json.loads(athlete.get("health_screen_flags") or "[]")
     if flags and not athlete.get("medical_clearance_at"):
         return {"ok": False, "reason": "health screen flagged " + ", ".join(flags)
@@ -1095,8 +1148,12 @@ def _onboarding_status(conn, athlete):
                                                 (goal["race_id"],)).fetchone())
     if not goal:
         return "no_goal"
+    if athlete.get("safety_screen_status") == "pending_review":
+        return "awaiting_safety_review"
     if flags and not athlete.get("medical_clearance_at"):
         return "awaiting_medical_clearance"
+    if goal["goal_type"] == "race" and goal.get("verification_status") in ("unverified", "mismatch"):
+        return "awaiting_race_check" if goal["verification_status"] == "unverified" else "race_details_disputed"
     if not has_plan:
         return "plan_not_generated"
     if not athlete.get("chat_ref"):
@@ -1546,6 +1603,161 @@ def backfill_history():
             "in_sync": hist_n >= coach_n}
 
 
+SAFETY_REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "outcome": {"type": "string", "enum": ["clear", "caution", "needs_clearance"]},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "quotes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["outcome", "reasons"],
+}
+RACE_CHECK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "race_date": {"type": "string", "description": "YYYY-MM-DD of the next edition"},
+        "distance_km": {"type": "number"},
+        "elevation_gain_m": {"type": ["number", "null"]},
+        "terrain": {"type": ["string", "null"]},
+        "source": {"type": "string", "description": "URL the details came from"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "notes": {"type": ["string", "null"]},
+    },
+    "required": ["race_date", "distance_km", "source", "confidence"],
+}
+
+
+def get_review_tasks(athlete_id):
+    """The independent second-opinion tasks this athlete still needs, ready to
+    pass to delegate_task unchanged. Only the athlete's own words / the race
+    name go to the reviewer -- never their name, email or Telegram id."""
+    conn = connect()
+    athlete = _get_athlete(conn, athlete_id)
+    goal = _active_goal(conn, athlete_id) or {}
+    tasks, how = [], []
+    if athlete.get("safety_screen_status") == "pending_review":
+        sj = json.loads(athlete.get("safety_screen_json") or "{}")
+        tasks.append({
+            "goal": "Safety-screen a new runner's own words before a running plan is written for them.",
+            "context": (
+                "You are an independent reviewer for a running coach. Read ONLY the text below, written by the "
+                "runner on a sign-up form, and decide whether a doctor should clear them before they start a "
+                "running plan. You are not diagnosing anything; when in doubt, be cautious.\n\n"
+                "needs_clearance: anything heart- or circulation-related (including past stents, surgery, "
+                "arrhythmia, high blood pressure), chest pain, fainting or dizziness with exercise, seizures, "
+                "diabetes on insulin, current pregnancy or birth in the last 6 months, surgery or a serious "
+                "illness/treatment in the last 6 months, concussion in the last 3 months, a doctor/physio "
+                "limiting activity, eating disorder or RED-S, unexplained breathlessness, long covid.\n"
+                "caution: injuries or conditions the coach must plan around but that don't need a doctor first "
+                "(old or healed injuries, a niggle, controlled asthma, joint pain).\n"
+                "clear: nothing relevant, or it is explicitly negated (e.g. 'no heart problems').\n\n"
+                "Keyword hints from a simple scanner (may be false alarms, may miss things): "
+                + (", ".join(f"{h['label']} ('{h['excerpt']}')" for h in sj.get("keyword_hits", [])) or "none")
+                + "\n\nRunner's text:\n" + sj.get("text", "")),
+            "output_schema": SAFETY_REVIEW_SCHEMA})
+        how.append("Safety: read the text yourself as well, then record_safety_review with reviewer_outcome (the "
+                   "delegate's answer) and own_outcome (yours). The more cautious outcome is kept.")
+    if goal.get("goal_type") == "race" and goal.get("verification_status") in ("unverified", None):
+        tasks.append({
+            "goal": f"Independently find the official details of the running race '{goal['race_name']}'.",
+            "context": (f"Find the edition held on or around {goal['race_date']} (the runner's form says "
+                        f"{goal['distance_km']:g} km). Use web search. Prefer the organiser's site or an official "
+                        f"entry/results platform. Report the race date, exact distance in km, total elevation gain "
+                        f"in metres (null if you can't find a real figure -- never guess), terrain, and the URL "
+                        f"you used. If you only find last year's edition, say so in notes and set confidence low."),
+            "output_schema": RACE_CHECK_SCHEMA})
+        how.append("Race: look it up yourself too (source 1, starting from course_url "
+                   f"{goal.get('course_url') or '(none given -- search)'}; the delegate is source 2 and must use a "
+                   "different page), then verify_race_info with primary=yours, secondary=the delegate's answer.")
+    return {"ok": True, "athlete_id": athlete_id, "tasks": tasks,
+            "delegate_call": {"tasks": tasks} if tasks else None, "then": how,
+            "note": "Nothing to review." if not tasks else
+                    "Pass delegate_call to delegate_task exactly (it runs them in parallel)."}
+
+
+def record_safety_review(athlete_id, reviewer_outcome, own_outcome, reasons=None, notes=None):
+    """Store the free-text safety review. The more cautious of the reviewer's
+    and the coach's outcome wins. needs_clearance adds a 'free text:' health
+    flag, so the medical-clearance gate applies exactly as for a ticked box."""
+    order = ["clear", "caution", "needs_clearance"]
+    for o in (reviewer_outcome, own_outcome):
+        if o not in order:
+            raise ToolError(f"outcomes must be one of {order}")
+    conn = connect()
+    athlete = _get_athlete(conn, athlete_id)
+    sj = json.loads(athlete.get("safety_screen_json") or "{}")
+    final = max(reviewer_outcome, own_outcome, key=order.index)
+    medical_hits = [h for h in sj.get("keyword_hits", []) if h["level"] == "medical"]
+    if final == "clear" and medical_hits and not notes:
+        raise ToolError("the keyword scan found medical words (" + ", ".join(h["label"] for h in medical_hits) +
+                        "); clearing needs a note saying why (e.g. 'text says no heart problems')")
+    sj.update(reviewer_outcome=reviewer_outcome, own_outcome=own_outcome, final=final,
+              reasons=reasons or [], notes=notes, reviewed_at=_now())
+    flags = json.loads(athlete.get("health_screen_flags") or "[]")
+    if final == "needs_clearance":
+        flag = "free text: " + ("; ".join(reasons or []) or notes or "see safety review")
+        flags = [f for f in flags if not f.startswith("free text:")] + [flag]
+    conn.execute("UPDATE athlete_profile SET safety_screen_status=?, safety_screen_json=?, health_screen_flags=?, "
+                 "updated_at=? WHERE athlete_id=?", (final, json.dumps(sj), json.dumps(flags), _now(), athlete_id))
+    conn.commit()
+    return {"ok": True, "final": final, "needs_medical_clearance": final == "needs_clearance",
+            "tell": {"clear": "Nothing to act on.",
+                     "caution": "Plan around it; mention it to the athlete in the welcome and to the owner.",
+                     "needs_clearance": "No plan until they confirm a doctor has cleared them "
+                                        "(update_athlete_profile medical_clearance_at). Tell the owner."}[final]}
+
+
+def verify_race_info(race_id, primary, secondary):
+    """Compare two independently found descriptions of the race with each other
+    and the form. Agreement -> 'verified' and the course details are recorded;
+    any difference -> 'mismatch' for the owner to settle (confirm_race_info)."""
+    conn = connect()
+    goal = _row(conn.execute("SELECT * FROM race_target WHERE race_id=?", (race_id,)).fetchone())
+    if not goal or goal["goal_type"] != "race":
+        raise ToolError(f"no race goal {race_id!r}")
+    res = safety_checks.compare_race_sources(goal, primary, secondary)
+    detail = {"primary": primary, "secondary": secondary, "differences": res["differences"],
+              "agreed": res["agreed"], "checked_at": _now()}
+    if res["status"] == "verified":
+        a = res["agreed"]
+        notes = " ".join(x for x in (a.get("terrain_notes"), a.get("elevation_note")) if x) or None
+        conn.execute("UPDATE race_target SET verification_status='verified', verification_json=?, elevation_gain_m=?, "
+                     "terrain_notes=? WHERE race_id=?", (json.dumps(detail), a["elevation_gain_m"], notes, race_id))
+    else:
+        conn.execute("UPDATE race_target SET verification_status='mismatch', verification_json=? WHERE race_id=?",
+                     (json.dumps(detail), race_id))
+    conn.commit()
+    return {"ok": True, "status": res["status"], "differences": res["differences"], "agreed": res["agreed"],
+            "next": ("Race verified -- generate_program." if res["status"] == "verified" else
+                     "Show the owner the differences with both sources; when they tell you the right details, "
+                     "call confirm_race_info.")}
+
+
+def confirm_race_info(race_id, note, race_date=None, distance_km=None, elevation_gain_m=None, terrain_notes=None):
+    """The owner settles the race details (after a mismatch, or when no source
+    has them). Only call with details the OWNER gave you."""
+    conn = connect()
+    goal = _row(conn.execute("SELECT * FROM race_target WHERE race_id=?", (race_id,)).fetchone())
+    if not goal or goal["goal_type"] != "race":
+        raise ToolError(f"no race goal {race_id!r}")
+    sets = {"verification_status": "owner_confirmed"}
+    if race_date:
+        iso, _ = _parse_date(race_date)
+        sets["race_date"] = iso
+    for k, v in (("distance_km", distance_km), ("elevation_gain_m", elevation_gain_m), ("terrain_notes", terrain_notes)):
+        if v is not None:
+            sets[k] = v
+    vj = json.loads(goal.get("verification_json") or "{}")
+    vj["owner_confirmation"] = {"note": note, "values": {k: v for k, v in sets.items() if k != "verification_status"},
+                                "at": _now()}
+    sets["verification_json"] = json.dumps(vj)
+    conn.execute(f"UPDATE race_target SET {', '.join(f'{k}=?' for k in sets)} WHERE race_id=?",
+                 (*sets.values(), race_id))
+    conn.commit()
+    return {"ok": True, "race_target": _row(conn.execute("SELECT * FROM race_target WHERE race_id=?",
+                                                         (race_id,)).fetchone())}
+
+
 def _read_xlsx(path):
     """First worksheet of an .xlsx as a 2-D list of strings (stdlib only)."""
     import zipfile
@@ -1660,6 +1872,7 @@ TOOLS = {f.__name__: f for f in [
     check_trigger_staleness, get_athlete_summary, ingest_sheet_rows, link_chat, install_checkin_gate,
     get_trends, get_squad_overview, get_run_history, export_run_file, backfill_history,
     ingest_sheet_file, sync_telegram_allowlist, get_onboarding_status, review_week,
+    get_review_tasks, record_safety_review, verify_race_info, confirm_race_info,
 ]}
 
 

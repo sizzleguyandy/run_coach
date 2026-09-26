@@ -85,39 +85,93 @@ the Sheet. Ignore a spreadsheet sent by anyone else.
      `$RC ingest_sheet_file '{"file_path": "<path>"}'`
    - A Sheet link, only if google-workspace is authorised here: read
      it with `sheets get`, then `ingest_sheet_rows`.
-2. **For each athlete in `ingested`, do playbook A steps 2–3** as far
-   as you can without the athlete:
-   - fetch the course and `record_course_info` (race only)
-   - convert fixed commitments
-   - then `generate_program`
+2. **Tell the owner about any `warnings`** (the number checks: swapped
+   answers, pounds instead of kg, a race too soon or too far off). Rows
+   in `errors` weren't taken in at all, e.g. a race date in the past.
+   They need fixing in the Sheet and resending.
+3. **Second opinions (playbook R) for each athlete in `ingested`:**
+   - Call `get_review_tasks`.
+   - Run **all** returned tasks, for every athlete, in one
+     `delegate_task(tasks=[...])` call.
+   - Record the answers.
+4. **Then, for each athlete, do playbook A step 3** as far as you can
+   without them (e.g. convert fixed commitments), then
+   `generate_program`.
 
    Hold anything that needs the athlete, such as medical clearance,
    HR zone screenshots, or a confirmed ambiguous date. It becomes part
    of their welcome.
-3. **Allowlist.** Run `$RC sync_telegram_allowlist '{}'`. If
+5. **Allowlist.** Run `$RC sync_telegram_allowlist '{}'`. If
    `restart_needed`, tell the owner to run `hermes gateway restart`
    when convenient. All bots blink for a few seconds. **Don't run it
    yourself from a chat; it would end your own session.**
-4. **Report to the owner** with `$RC get_onboarding_status '{}'`.
+6. **Report to the owner** with `$RC get_onboarding_status '{}'`.
    Give one line per athlete: name, goal, status, and anything that
    needs the owner.
+   - `race_details_disputed`: show both sources and the differences.
+     Ask which details are right, then `confirm_race_info`.
+   - `awaiting_medical_clearance`: includes anything the safety review
+     found in their free text. The athlete must confirm a doctor has
+     cleared them.
    - `awaiting_telegram_link`: no usable Telegram ID. Ask the owner to
      get the athlete's number from @userinfobot, fix the Sheet, and
      resend it.
    - `plan_not_generated` with a reason: relay it, e.g. "base too low
      for a race; offered general fitness".
-5. **Give the owner the message to forward to each athlete** who is
+7. **Give the owner the message to forward to each athlete** who is
    `welcome_pending` or `awaiting_medical_clearance`:
    > "Your running plan is ready! Open <bot link>, press **Start** and
    > say hi. Your coach bot will take it from there."
 
    Telegram doesn't let a bot message someone first, so this forwarded
    link is how every athlete starts.
-6. **If the owner re-sends the Sheet later**, only new or edited rows
-   come back.
+8. **If the owner re-sends the Sheet later**, only new or edited rows
+   come back. Changed free text gets a fresh safety review; a new race
+   gets a fresh race check.
    - For an edited athlete with `goal_changed: true`, ask the owner
      before rebuilding their plan.
    - Otherwise only their details changed. Say what changed.
+
+### R. Second opinions before any plan (safety review + race check)
+
+Two things are checked by a **second, independent agent** before a plan
+is built, because a mistake there can hurt someone. The code refuses
+to build the plan until both are done.
+
+1. `$RC get_review_tasks '{"athlete_id": "..."}'` returns a
+   ready-made `delegate_call`. Pass it to `delegate_task` **exactly as
+   given**. The tasks carry their own instructions and answer formats,
+   and never include the athlete's name, email or Telegram ID. Batch
+   several athletes' tasks into one call.
+2. **Safety review** (the athlete wrote free text: injuries, anything
+   else, commitments). Read their text yourself as well, and decide
+   your own outcome before looking at the reviewer's.
+   - Then run
+     `record_safety_review {"athlete_id", "reviewer_outcome", "own_outcome", "reasons", "notes"}`.
+   - The more cautious outcome is kept.
+   - `needs_clearance` works exactly like a ticked health box: no plan
+     until the athlete confirms a doctor has cleared them.
+   - `caution` means plan around it, and mention it in the welcome and
+     to the owner.
+   - Clearing text that contains medical words (e.g. "no heart
+     problems") needs a note saying why.
+3. **Race check.** Find the race details yourself (source 1), starting
+   from the form's URL. The delegate found them independently from a
+   different page (source 2). Then run
+   `verify_race_info {"race_id", "primary": {race_date, distance_km, elevation_gain_m, terrain, source}, "secondary": {...}}`.
+   - `verified`: the course details are stored; build the plan.
+   - `mismatch`: show the owner the `differences` and both sources.
+     When they tell you the right details, run
+     `confirm_race_info {"race_id", "note", "race_date"?, "distance_km"?, "elevation_gain_m"?}`.
+     Only use values the **owner** gave.
+   - If no source has elevation, `verified` still works; the plan
+     assumes a flat course and the summary says so. Mention it to the
+     owner.
+4. Never skip, fake or answer a review yourself instead of running the
+   delegate. If `delegate_task` isn't available, tell the owner. Then
+   the owner confirms the race (`confirm_race_info`), and you record
+   the safety review with `reviewer_outcome` = your own outcome **plus
+   a note that no second reviewer was available**.
 
 ### A. An athlete's first message (welcome) and remaining intake steps
 
@@ -141,9 +195,8 @@ the Sheet. Ignore a spreadsheet sent by anyone else.
      athlete to get cleared by a doctor. **Stop here** until they
      confirm. Then
      `update_athlete_profile {"athlete_id": ..., "fields": {"medical_clearance_at": "<date>"}}`.
-   - **Race goal:** fetch the course page with your web tools (search
-     the race name if there's no URL). Then
-     `record_course_info {"race_id": ..., "elevation_gain_m": ..., "terrain_notes": ..., "source": "<url>"}`.
+   - **Safety review / race check:** playbook R. Plans are refused until
+     both are done.
    - **HR zones:** ask them to send the screenshot or export in chat
      and read it with vision. Decide whether the zones are %max or
      %LTHR; watches often use %LTHR without saying so. Save it with

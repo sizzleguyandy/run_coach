@@ -61,7 +61,10 @@ Data lives in `$HERMES_HOME/run_coach/`, created on first use:
 | `link_chat` | Tie a chat (`chat_ref`) to an athlete by `email` (fallback when the Telegram ID was missing) |
 | `ingest_sheet_rows` / `ingest_intake_form` | Take in form responses (Sheet values read via google-workspace, or one response) |
 | `update_athlete_profile` | HR zones, fixed commitments, medical clearance, baselines |
-| `record_course_info` | Save a race's real elevation and terrain (you fetch the page) |
+| `get_review_tasks` | Ready-made second-opinion tasks (free-text safety review, race check) to pass to `delegate_task` |
+| `record_safety_review` | Store the safety review; the more cautious of reviewer and you wins |
+| `verify_race_info` / `confirm_race_info` | Two independent race sources must agree, or the owner confirms |
+| `record_course_info` | Low-level edit of a race's elevation/terrain (normally done by `verify_race_info`) |
 | `generate_program` | Build or rebuild the plan (race or general fitness) |
 | `install_checkin_gate` | Set up the athlete's daily check-in cron job (run in **their** chat) |
 | `parse_run_file` → `match_run_to_program` → `compare_run_to_program` | Log and assess a run |
@@ -93,7 +96,10 @@ event. The coaching rules and the reasons behind them are in
    - Answer only from the summary, never from chat history.
 2. **The owner sends the Sheet** (playbook A0):
    - `ingest_sheet_file`
-   - per athlete: course info, commitments, then `generate_program`
+   - tell the owner about any number-check `warnings`
+   - **second opinions** (playbook R): `get_review_tasks` → one
+     `delegate_task` call → `record_safety_review` / `verify_race_info`
+   - per athlete: commitments, then `generate_program`
    - `sync_telegram_allowlist`, then ask the owner to run
      `hermes gateway restart`
    - report with `get_onboarding_status`
@@ -106,8 +112,7 @@ event. The coaching rules and the reasons behind them are in
    how to send runs, check-in setup, then `welcomed_at`. Otherwise do
    the remaining `next_steps` in order:
    - medical clearance (stop until they confirm)
-   - course page, race only: fetch it with your web tools, then
-     `record_course_info`
+   - safety review and race check (playbook R) if still pending
    - HR zone screenshot: read it with vision and work out whether it's
      %max or %LTHR, then `update_athlete_profile`
    - fixed commitments: convert to JSON, then `update_athlete_profile`
@@ -154,6 +159,10 @@ event. The coaching rules and the reasons behind them are in
   suggestion honestly. Don't work around it.
 - Never write athlete facts to memory, and never mention one athlete
   to another.
+- No plan until the free-text safety review is recorded and the race
+  is verified by two independent sources (or confirmed by the owner).
+  These are second opinions from a separate agent via `delegate_task`;
+  never skip or fake them.
 - Trends come only from `get_trends`. It needs at least 2 weeks and 4
   runs, and each line states its evidence. Don't compute or claim a
   trend yourself.

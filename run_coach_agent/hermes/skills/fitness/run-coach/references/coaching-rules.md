@@ -193,6 +193,32 @@ TONE AND HONESTY
   the most useful thing you can tell them.
 ```
 
+## 1b. Second opinions and sanity checks
+
+Three kinds of mistake could hurt an athlete, and each has its own
+check before a plan is built:
+
+1. **Bad numbers** (code, `safety_checks.intake_checks`):
+   - A longest run bigger than the 4-week total.
+   - Pounds instead of kg, or implausible distances.
+   - A race too soon, too far off or in the past. A race date in the
+     past blocks the row.
+2. **Health problems written in free text rather than ticked**
+   (someone ticks "None of these" and then writes "had a stent last
+   year"):
+   - A keyword net flags words and passes them as hints.
+   - An **independent reviewer agent** reads all the free text, and so
+     does the coach. The more cautious outcome wins.
+   - `needs_clearance` blocks the plan exactly like a ticked box.
+3. **Wrong race details** (wrong edition, date, distance or elevation):
+   - Two independently found sources must agree with each other and
+     with the form.
+   - Otherwise the owner decides.
+
+These are targeted second opinions, run once per athlete, not a swarm
+of agents on every message. The plan's numbers are already computed by
+code, so extra agents couldn't make those more accurate.
+
 ## 2a. Weekly readjustment
 
 A plan built from an intake form is a first guess. After every week the

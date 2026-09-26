@@ -12,6 +12,7 @@ from xml.sax.saxutils import escape
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import coach_tools as ct  # noqa: E402
+from tests.helpers import complete_reviews  # noqa: E402
 
 EXAMPLES = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "examples")
 TG_Q = "Your Telegram user ID (message @userinfobot on Telegram to get it)"
@@ -66,6 +67,8 @@ class SheetOnboarding(unittest.TestCase):
             os.environ.pop(k, None)
 
     def call(self, name, **args):
+        if name == "generate_program":
+            complete_reviews(args["athlete_id"])
         out = ct.call_tool(name, args)
         self.assertTrue(out.get("ok"), f"{name}: {out}")
         return out
@@ -77,6 +80,9 @@ class SheetOnboarding(unittest.TestCase):
         race = by_goal["race"]
         s = self.call("get_athlete_summary", chat_ref="telegram:2222222222")
         self.assertEqual(s["active_goal"]["race_date"], "2027-01-17")   # 17/01/2027 read as day/month
+        self.assertEqual(s["onboarding_status"], "awaiting_safety_review")   # free text is reviewed first
+        complete_reviews(race["athlete_id"])
+        s = self.call("get_athlete_summary", chat_ref="telegram:2222222222")
         self.assertEqual(s["onboarding_status"], "plan_not_generated")
         for r in res["ingested"]:
             self.call("generate_program", athlete_id=r["athlete_id"], race_id=r["race_id"], reason="initial")

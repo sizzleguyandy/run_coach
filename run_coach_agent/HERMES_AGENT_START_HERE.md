@@ -106,7 +106,13 @@ what you changed.
    users send (for example `~/.hermes/cache/documents/`) and how you
    receive the path. If it isn't handed to you automatically, note in
    `references/playbooks.md` playbook B where to find it.
-5. **Google Sheets access (optional).** The owner normally sends the
+5. **Second-opinion agent.** Check that the coach profile has the
+   `delegate_task` tool (Hermes' delegation toolset) enabled. Before
+   any plan is built, the coach uses it for an independent safety
+   review of what the athlete wrote, and for an independent race
+   check. If it's missing, enable delegation for the coach profile,
+   or tell your owner.
+6. **Google Sheets access (optional).** The owner normally sends the
    athletes' Sheet as a downloaded .csv/.xlsx file, which needs no
    Google access. Only if they want to send Sheet links: set up
    `google-workspace` in the coach profile for Sheets only
@@ -124,11 +130,16 @@ EX="$TARGET/skills/fitness/run-coach/examples"
 $RC ingest_intake_form "{\"form_response_json\": $(cat $EX/intake_general_fitness.json)}"
 #   note athlete_id and race_id from the output, then:
 $RC generate_program '{"athlete_id": "<id>", "race_id": "<id>", "reason": "smoke test"}'
+#   ^ should REFUSE: the athlete wrote about an old knee injury, so the safety review comes first
+$RC record_safety_review '{"athlete_id": "<id>", "reviewer_outcome": "caution", "own_outcome": "caution", "reasons": ["old knee injury"], "notes": "smoke test"}'
+$RC generate_program '{"athlete_id": "<id>", "race_id": "<id>", "reason": "smoke test"}'
 $RC parse_run_file "{\"file_path\": \"$EX/example_run.gpx\", \"athlete_id\": \"<id>\"}"
 $RC get_run_history '{"athlete_id": "<id>"}'     # the run is in the permanent history
 unset COACH_DB; rm -rf "$SMOKE"
 ```
-- The plan should come back with `"mode": "walk_run"`.
+- The first `generate_program` must return `"ok": false` (safety review
+  pending). After `record_safety_review`, the second must come back with
+  `"mode": "walk_run"`.
 - The run file should parse at about 5 km in 30 min.
 - `get_run_history` should show 1 run under `all_time`.
 

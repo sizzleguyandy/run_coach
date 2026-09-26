@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import coach_tools as ct  # noqa: E402
+from tests.helpers import complete_reviews  # noqa: E402
 
 EXAMPLES = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "examples")
 
@@ -43,6 +44,8 @@ class TrendsBuildOverTime(unittest.TestCase):
         os.environ.pop("COACH_TODAY", None)
 
     def call(self, name, **args):
+        if name == "generate_program":
+            complete_reviews(args["athlete_id"])
         out = ct.call_tool(name, args)
         self.assertTrue(out.get("ok"), f"{name}: {out}")
         return out
