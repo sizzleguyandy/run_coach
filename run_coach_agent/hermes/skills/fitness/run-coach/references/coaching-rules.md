@@ -1,13 +1,10 @@
-# Run Coach Agent — Build Instructions
+# Run Coach — coaching rules
 
-Platform-agnostic agent specification. Written as a system prompt +
-tool definitions in standard function-calling JSON schema, since that
-format is what most agent platforms (Hermes, OpenClaw, or anything
-built on the common LLM tool-use pattern) consume natively or can
-adapt from with minimal translation. If your target platform needs a
-different config shape, treat this as the source of truth and convert
-the tool schema — the prompt content and division of labor below
-shouldn't need to change.
+The source of truth for how the run-coach skill coaches. `SOUL.md`
+carries the voice, and `SKILL.md` and `playbooks.md` carry the
+step-by-step handling. This file holds the full rules and, where it
+matters, the reason for each one. When a situation isn't covered by a
+playbook, decide from here.
 
 This spec is derived from a real ~7-week training block run manually
 (this agent, one athlete, no Strava access) — every rule below exists
@@ -43,8 +40,10 @@ this GPX file" — it should call `parse_run_file` and read the number.
 
 ## 2. System prompt
 
-Use this as the agent's system/instructions field on whatever platform
-you're building on.
+In Hermes, the agent's identity and voice are in `SOUL.md`, and the
+step-by-step handling is in `SKILL.md` and `references/playbooks.md`.
+The block below is the full rule set they're built from. When a
+situation isn't covered by a playbook, decide from these rules.
 
 ```
 You are a running coach agent. You manage one athlete's training plan
@@ -196,26 +195,10 @@ TONE AND HONESTY
 
 ## 3. Tools
 
-Every tool is implemented in `coach_tools.py`; `tools_schema.json` has
-the function-calling definitions (names and parameters match the code
-exactly). Call them via `coach_tools.call_tool(name, args)` or
-`python3 coach_tools.py <name> '<json>'`. See START_HERE.md.
-
-| Tool | Backing code | Why it's a tool, not a prompt |
-|---|---|---|
-| `get_athlete_summary` / `list_athletes` | SQLite reads | The DB is the source of truth, not chat memory |
-| `ingest_intake_form` | form-question mapping + DB write | Same mapping every time; returns the exact next steps |
-| `update_athlete_profile` | DB write | HR zones can't be saved without their source and basis notes |
-| `record_course_info` | DB write (you do the web fetch) | Real elevation data instead of an assumption |
-| `generate_program` | `race_plan.py` / `general_fitness.py` | The 10% (race) / 5% (general fitness) caps, cutbacks, time trials and hill specificity are guaranteed rather than usually-followed |
-| `parse_run_file` | `fit_parser.py` / `gpx_parser.py` | Binary/XML parsing, exact arithmetic |
-| `match_run_to_program` | `analysis.py` | Date/type matching logic |
-| `compare_run_to_program` | `analysis.py` | Deterministic thresholds and streak counting, must be reproducible |
-| `record_missed_session` | `analysis.py` | Missed-session streak — must be exact, not remembered |
-| `get_upcoming_sessions` | SQLite read | Always read the plan, never reconstruct it |
-| `write_program_revision` | DB write with adjacency checks | Every plan change is audited, never a silent UPDATE |
-| `schedule_checkin` / `get_due_checkins` | `checkin_trigger` table | Bound to sessions/signals, not just dates |
-| `check_trigger_staleness` | `analysis.py` | Simple equality check, but easy to skip if left to judgment |
+Every tool is in `scripts/coach_tools.py`, and parameters are defined
+in `references/tools_schema.json`. See `SKILL.md` for the one-line
+purpose of each tool and `references/playbooks.md` for when to call
+it.
 
 ## 4. What "no Strava access" changes, specifically
 
@@ -234,24 +217,19 @@ exactly). Call them via `coach_tools.call_tool(name, args)` or
   ("here's this week's programme" / "how did Thursday go?"), not
   around silence being informative.
 
-## 5. File layout
+## 5. File layout (Hermes)
 
 ```
-run_coach_agent/
-  START_HERE.md             -- read first: setup + step-by-step playbooks
-  AGENT_INSTRUCTIONS.md     -- this file (system prompt + rules)
-  coach_tools.py            -- every tool, runnable from a shell or call_tool()
-  tools_schema.json         -- function-calling definitions for coach_tools.py
-  schema.sql                -- SQLite schema (created automatically on first use)
-  race_plan.py              -- race program generator
-  general_fitness.py        -- slow, safe ramp for the "just get fitter" goal
-  analysis.py               -- comparison + signal-state logic
-  fit_parser.py             -- no dependencies
-  gpx_parser.py             -- stdlib only
-  google_form_spec.md       -- field list for the intake form
-  examples/                 -- sample form responses + a sample GPX
-  tests/test_kit.py         -- end-to-end checks; run before first use
+$HERMES_HOME/
+  SOUL.md                              identity + voice (slot #1 of the prompt)
+  memories/MEMORY.md                   seed notes; the agent maintains it
+  scripts/run-coach-backup.py          no-agent cron: daily DB backup
+  scripts/run-coach-due-<id>.py        per-athlete check-in gates (generated)
+  run_coach/AGENTS.md                  workspace rules, loaded by cron jobs (workdir)
+  run_coach/coach.db                   the database (created on first use)
+  skills/fitness/run-coach/
+    SKILL.md                           when/how to use the tools
+    references/                        playbooks, these rules, form spec, tool schema
+    scripts/                           coach_tools.py, generators, parsers, analysis, schema.sql, tests/
+    examples/                          sample form responses + sample GPX
 ```
-
-None of the parsing, generation or analysis code needs to change per
-platform — only how your platform calls `coach_tools.call_tool`.

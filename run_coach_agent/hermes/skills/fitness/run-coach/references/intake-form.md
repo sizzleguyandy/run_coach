@@ -4,7 +4,7 @@ Build this as a Google Form (or Typeform/JotForm — any tool that exports
 structured responses). Field names on the left map directly to
 `athlete_profile` / `race_target` columns in schema.sql; wire the form's
 response webhook (or a scheduled Sheet-poll) to write into those tables
-via the `ingest_intake_form` tool (see tools_schema.json).
+via the `ingest_sheet_rows` / `ingest_intake_form` tools (see tools_schema.json).
 
 Design rule: **never ask the athlete to compute or estimate something
 the agent can derive or fetch itself.** Every field below is either raw
@@ -86,6 +86,23 @@ their generator uses; the km figures are just extra context.
 | Anything else I should know? | long text | free text, read at intake, not force-fit into a column | |
 
 ---
+
+## Getting responses to the agent (Hermes)
+
+In the Form's **Responses** tab, click **Link to Sheets**. The hourly
+`run-coach intake` cron job (set up in `playbooks.md` section 0) reads
+that Sheet with the `google-workspace` skill and passes every row to
+`ingest_sheet_rows`. Rows already ingested are skipped, and
+checkbox answers (the health check and days to avoid) are split
+automatically.
+
+Questions are matched by their **wording**. Keep the question text as
+written above. If you reword one, run a test submission and check the
+`normalized` block that `ingest_intake_form` returns.
+
+Add one line to the form's confirmation message:
+*"Next, message the coach bot at <bot link> so it can send you your
+plan."* That's how the athlete's chat gets linked to their response.
 
 ## What the agent does with this on submission
 

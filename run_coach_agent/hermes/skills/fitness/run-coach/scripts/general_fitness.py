@@ -5,7 +5,7 @@ general_fitness.py — deterministic program generator for the
 Same division of labor as the rest of the kit: the agent decides
 WHEN to call this and explains the output; this code decides the
 numbers. The ramp here is deliberately slower and more conservative
-than the race-build rules in AGENT_INSTRUCTIONS.md, because a
+than the race-build rules in references/coaching-rules.md, because a
 general-fitness athlete has no deadline to justify any risk:
 
   - Everything is prescribed in MINUTES, not km, at conversational

@@ -39,7 +39,8 @@ CREATE TABLE athlete_profile (
     health_screen_flags  TEXT,                   -- JSON array of any "yes" answers to the form's health questions; non-empty = get medical clearance before generating
     baseline_continuous_run_min INTEGER,         -- longest they can run non-stop right now (general-fitness intake)
     baseline_weekly_run_min     INTEGER,         -- roughly how many minutes of running per week lately
-    medical_clearance_at TEXT,                   -- ISO date the athlete confirmed medical clearance (only needed if health_screen_flags is non-empty)
+    medical_clearance_at TEXT,
+    chat_ref             TEXT UNIQUE,            -- the athlete's chat identity (platform:user id from Hermes' session context) so a message can be tied to its athlete                   -- ISO date the athlete confirmed medical clearance (only needed if health_screen_flags is non-empty)
     distance_unit        TEXT DEFAULT 'km',      -- 'km' | 'mi' -- convert at the edges, store km internally regardless
 
     created_at           TEXT NOT NULL,

@@ -10,12 +10,14 @@ use to confirm the environment works.
 import itertools
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 from datetime import date
 
-KIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+KIT = SCRIPTS
 sys.path.insert(0, KIT)
 
 import analysis  # noqa: E402
@@ -23,7 +25,7 @@ import coach_tools as ct  # noqa: E402
 from general_fitness import generate_general_fitness_plan  # noqa: E402
 from race_plan import generate_race_plan  # noqa: E402
 
-EXAMPLES = os.path.join(KIT, "examples")
+EXAMPLES = os.path.join(os.path.dirname(SCRIPTS), "examples")
 
 
 def load(name):
@@ -177,6 +179,66 @@ class RaceFlow(ToolTestCase):
                                                 "race_id": intake["race_id"], "reason": "initial"})
         self.assertFalse(out["ok"])
         self.assertIn("general-fitness", out["suggestion"])
+
+
+class HermesIntegration(ToolTestCase):
+    def setUp(self):
+        super().setUp()
+        os.environ["HERMES_HOME"] = os.path.join(self.tmp.name, "hermes_home")
+
+    def tearDown(self):
+        os.environ.pop("HERMES_HOME", None)
+        super().tearDown()
+
+    def test_sheet_ingest_link_and_checkin_gate(self):
+        form = load("intake_general_fitness.json")
+        header = list(form)
+        row = [", ".join(v) if isinstance(v, list) else v for v in form.values()]
+        first = self.call("ingest_sheet_rows", values=[header, row])
+        self.assertEqual(len(first["ingested"]), 1, first)
+        again = self.call("ingest_sheet_rows", values=[header, row])
+        self.assertEqual((len(again["ingested"]), again["duplicates"]), (0, 1))
+        aid, gid = first["ingested"][0]["athlete_id"], first["ingested"][0]["race_id"]
+        latest = self.call("get_athlete_summary", athlete_id=aid)["latest_intake"]
+        self.assertEqual(latest["avoid_days"], ["Wednesday"])            # checkbox split
+
+        unlinked = ct.call_tool("get_athlete_summary", {"chat_ref": "telegram:42"})
+        self.assertFalse(unlinked["ok"])
+        self.call("link_chat", email="SAM@example.com", chat_ref="telegram:42")
+        self.assertEqual(self.call("get_athlete_summary", chat_ref="telegram:42")["athlete"]["athlete_id"], aid)
+        other = self.call("ingest_intake_form", form_response_json=load("intake_race.json"))
+        clash = ct.call_tool("link_chat", {"athlete_id": other["athlete_id"], "chat_ref": "telegram:42"})
+        self.assertFalse(clash["ok"])
+
+        self.call("generate_program", athlete_id=aid, race_id=gid, reason="initial")
+        gate = self.call("install_checkin_gate", athlete_id=aid)
+        self.assertTrue(gate["gate_script"].startswith(os.environ["HERMES_HOME"]))
+        self.assertEqual(gate["cronjob_call"]["skill"], "run-coach")
+
+        def run_gate(today):
+            env = {**os.environ, "COACH_TODAY": today}
+            out = subprocess.run([sys.executable, gate["gate_script"]], env=env, capture_output=True,
+                                 text=True, check=True).stdout.strip().splitlines()[-1]
+            return json.loads(out)
+        self.assertFalse(run_gate("2026-10-05")["wakeAgent"])            # nothing due on day 1
+        woke = run_gate("2026-10-12")
+        self.assertTrue(woke["wakeAgent"])
+        self.assertTrue(woke["context"]["due_checkins"])
+
+    def test_backup_script(self):
+        self.call("init_db")
+        home = os.environ["HERMES_HOME"]
+        os.makedirs(os.path.join(home, "scripts"))
+        src = os.path.join(KIT, "..", "..", "..", "..", "scripts", "run-coach-backup.py")
+        if not os.path.exists(src):
+            self.skipTest("backup script not installed alongside the skill")
+        dst = os.path.join(home, "scripts", "run-coach-backup.py")
+        with open(src) as f, open(dst, "w") as g:
+            g.write(f.read())
+        res = subprocess.run([sys.executable, dst], env=os.environ.copy(), capture_output=True, text=True)
+        self.assertEqual((res.returncode, res.stdout), (0, ""))
+        backups = os.listdir(os.path.join(os.path.dirname(os.environ["COACH_DB"]), "backups"))
+        self.assertEqual(len(backups), 1)
 
 
 class SignalFixes(unittest.TestCase):

@@ -1,11 +1,11 @@
 {
-  "$comment": "Function-calling definitions for every tool in coach_tools.py (names and parameters match exactly; dispatch with coach_tools.call_tool(name, args) or `python3 coach_tools.py <name> '<json>'`). Portable to OpenAI-style tool-calling or Anthropic tool use; the description fields carry call-time rules, keep them if you convert.",
+  "$comment": "Parameter definitions for every tool in scripts/coach_tools.py (names and parameters match the code exactly). In Hermes, call them through the terminal: python3 ${HERMES_HOME:-$HOME/.hermes}/skills/fitness/run-coach/scripts/coach_tools.py <tool> '<json>'. Other platforms can dispatch to coach_tools.call_tool(name, args).",
   "tools": [
     {
       "type": "function",
       "function": {
         "name": "get_athlete_summary",
-        "description": "Load everything about one athlete before replying to them: profile, active goal (race or general_fitness), current plan revision, this week's and next week's sessions, pattern signals, last 5 runs, latest intake. Call this at the start of every conversation turn about an athlete -- never answer from memory or chat history, the plan may have been revised.",
+        "description": "Load everything about one athlete before replying to them: profile, active goal (race or general_fitness), current plan revision, this week's and next week's sessions, pattern signals, last 5 runs, latest intake. Identify by chat_ref in athlete chats. Call this at the start of every conversation turn about an athlete -- never answer from memory or chat history, the plan may have been revised.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -15,6 +15,10 @@
             "email": {
               "type": "string",
               "description": "Alternative to athlete_id."
+            },
+            "chat_ref": {
+              "type": "string",
+              "description": "'<platform>:<user id>' from the Current Session Context -- the normal way to identify who is messaging."
             }
           },
           "required": []
@@ -56,6 +60,74 @@
           },
           "required": [
             "form_response_json"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "ingest_sheet_rows",
+        "description": "Ingest Google Form responses read from the form's response Sheet (google-workspace `sheets get`). Pass the whole 2-D values array, header row first; already-ingested rows are skipped, so it is safe to pass the full sheet every time. Returns each new athlete's next_steps.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "array"
+              },
+              "description": "Rows of cells; row 0 = the form's question headers."
+            },
+            "start_date": {
+              "type": "string",
+              "description": "Optional plan start date for new goals (default next Monday)."
+            }
+          },
+          "required": [
+            "values"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "link_chat",
+        "description": "Tie the chat an athlete messages from to their athlete record (by the email they used on the form). Required before get_athlete_summary(chat_ref) works for them.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "chat_ref": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string"
+            },
+            "athlete_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "chat_ref"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "install_checkin_gate",
+        "description": "Write this athlete's cron gate script into $HERMES_HOME/scripts and return the exact cronjob call to create their daily check-in job. Call it FROM THE ATHLETE'S CHAT (delivery defaults to origin), then create the job with cronjob_manage using cronjob_call exactly.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "athlete_id"
           ]
         }
       }

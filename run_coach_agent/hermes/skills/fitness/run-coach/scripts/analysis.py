@@ -4,7 +4,7 @@ analysis.py — deterministic comparison engine.
 This is the layer that decides WHAT happened (numbers, deltas,
 pattern streaks). Deciding what it MEANS and what to do about it is
 the agent's job, working from this engine's output -- see
-AGENT_INSTRUCTIONS.md's "division of labor" section for why that
+references/coaching-rules.md's "division of labor" section for why that
 split matters.
 
 Everything here is pure computation on the schema in schema.sql.

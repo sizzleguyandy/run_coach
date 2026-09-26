@@ -1,5 +1,5 @@
 """
-coach_tools.py — working implementations of every tool in tools_schema.json.
+coach_tools.py — working implementations of every tool in references/tools_schema.json.
 
 This is the glue between the agent and the deterministic code: SQLite
 access (schema.sql), the file parsers, analysis.py, and the two program
@@ -10,13 +10,14 @@ wired to any function-calling platform OR driven from a shell:
     python3 coach_tools.py init_db
     python3 coach_tools.py --list                       # tool names
     python3 coach_tools.py get_athlete_summary '{"athlete_id": "..."}'
-    python3 coach_tools.py ingest_intake_form @examples/intake_general_fitness.json
+    python3 coach_tools.py get_athlete_summary '{"chat_ref": "telegram:123456789"}'
 
 Arguments are one JSON object (inline, or @path to a file). Output is
 JSON on stdout; on error {"ok": false, "error": ...} and exit code 1.
 
-The database lives at $COACH_DB (default: coach.db next to this file)
-and is created from schema.sql on first use.
+The database lives at $COACH_DB; installed as a Hermes skill it defaults
+to $HERMES_HOME/run_coach/coach.db (outside the skill, so updating the
+skill never touches data). Created from schema.sql on first use.
 
 Zero dependencies beyond the standard library.
 """
@@ -43,8 +44,28 @@ DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 # ---- plumbing ---------------------------------------------------
 
+def hermes_home():
+    """$HERMES_HOME, else the home this skill is installed under
+    (<home>/skills/<category>/<skill>/scripts), else None."""
+    if os.environ.get("HERMES_HOME"):
+        return os.path.expanduser(os.environ["HERMES_HOME"])
+    skills_dir = os.path.dirname(os.path.dirname(os.path.dirname(KIT_DIR)))
+    if os.path.basename(skills_dir) == "skills":
+        return os.path.dirname(skills_dir)
+    return None
+
+
 def db_path():
-    return os.environ.get("COACH_DB", os.path.join(KIT_DIR, "coach.db"))
+    """$COACH_DB, else <hermes home>/run_coach/coach.db when installed as a
+    Hermes skill (outside the skill dir, so skill updates never touch the
+    data), else coach.db next to this file."""
+    if os.environ.get("COACH_DB"):
+        return os.environ["COACH_DB"]
+    home = hermes_home()
+    if home:
+        os.makedirs(os.path.join(home, "run_coach"), exist_ok=True)
+        return os.path.join(home, "run_coach", "coach.db")
+    return os.path.join(KIT_DIR, "coach.db")
 
 
 def connect():
@@ -235,7 +256,8 @@ def init_db():
 
 def list_athletes():
     conn = connect()
-    rows = conn.execute("SELECT athlete_id, name, email, created_at FROM athlete_profile ORDER BY created_at").fetchall()
+    rows = conn.execute("SELECT athlete_id, name, email, chat_ref, created_at FROM athlete_profile "
+                        "ORDER BY created_at").fetchall()
     return {"ok": True, "athletes": [dict(r) for r in rows]}
 
 
@@ -289,8 +311,14 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
         conn.execute(f"INSERT INTO athlete_profile ({', '.join(profile)}) VALUES ({', '.join('?' * len(profile))})",
                      tuple(profile.values()))
 
+    raw = json.dumps(form_response_json, sort_keys=True)
+    if existing and conn.execute("SELECT 1 FROM intake_response WHERE athlete_id=? AND raw_json=?",
+                                 (athlete_id, raw)).fetchone():
+        conn.rollback()
+        return {"ok": True, "duplicate": True, "athlete_id": athlete_id,
+                "note": "this exact submission was already ingested; nothing changed"}
     conn.execute("INSERT INTO intake_response VALUES (?,?,?,?,?)",
-                 (_id("intake"), athlete_id, now, json.dumps(form_response_json), json.dumps(norm)))
+                 (_id("intake"), athlete_id, now, raw, json.dumps(norm)))
 
     # Goal row. A new submission replaces the active goal.
     race_id = _id("goal")
@@ -340,7 +368,10 @@ def ingest_intake_form(form_response_json, hr_zone_file_url=None, start_date=Non
         next_steps.append("Longest run / 4-week km missing: ask the athlete before generating a race plan.")
     next_steps.append(f"Call generate_program(athlete_id={athlete_id!r}, race_id={race_id!r}, "
                       f"reason='initial plan from intake').")
-    return {"ok": True, "athlete_id": athlete_id, "race_id": race_id, "goal_type": goal_type,
+    if not (existing or {}).get("chat_ref"):
+        next_steps.append("When the athlete messages you, link their chat: link_chat(email=..., chat_ref=...). "
+                          "Then set up their daily check-ins with install_checkin_gate FROM THEIR CHAT.")
+    return {"ok": True, "duplicate": False, "athlete_id": athlete_id, "race_id": race_id, "goal_type": goal_type,
             "is_update_of_existing_athlete": bool(existing), "health_screen_flags": health,
             "needs_medical_clearance": bool(health), "normalized": norm,
             "warnings": warnings, "next_steps": next_steps}
@@ -846,14 +877,22 @@ def check_trigger_staleness(trigger_id):
                             if (stale or dep_superseded) else "Plan unchanged; act on the prompt.")}
 
 
-def get_athlete_summary(athlete_id=None, email=None):
+def get_athlete_summary(athlete_id=None, email=None, chat_ref=None):
     """Everything the agent needs before replying: profile, active goal,
     current plan revision, this week and next, signals, recent runs."""
     conn = connect()
     if not athlete_id:
-        r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE lower(email)=lower(?)", (email or "",)).fetchone()
-        if not r:
-            raise ToolError("pass athlete_id or a known email")
+        if chat_ref:
+            r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE chat_ref=?", (chat_ref,)).fetchone()
+            if not r:
+                return {"ok": False, "error": f"no athlete linked to chat {chat_ref!r}",
+                        "suggestion": "Ask for the email they used on the intake form, then link_chat. "
+                                      "If they haven't filled it in, send them the form link."}
+        else:
+            r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE lower(email)=lower(?)",
+                             (email or "",)).fetchone()
+            if not r:
+                raise ToolError("pass athlete_id, chat_ref or a known email")
         athlete_id = r["athlete_id"]
     athlete = _get_athlete(conn, athlete_id)
     today = _today()
@@ -874,11 +913,100 @@ def get_athlete_summary(athlete_id=None, email=None):
             "latest_intake": _latest_intake(conn, athlete_id)}
 
 
+def ingest_sheet_rows(values, start_date=None):
+    """Ingest Google Form responses read from the form's response Sheet
+    (e.g. google-workspace `sheets get SHEET_ID "Form responses 1"`).
+    `values` is the 2-D array: first row = question headers. Rows already
+    ingested are skipped, so it's safe to pass the whole sheet every time."""
+    if not values or len(values) < 2:
+        return {"ok": True, "ingested": [], "duplicates": 0, "note": "no response rows"}
+    header = [str(h).strip() for h in values[0]]
+    ingested, dup, errors = [], 0, []
+    for i, row in enumerate(values[1:], start=2):
+        form = {h: (row[j] if j < len(row) else "") for j, h in enumerate(header) if h}
+        # Checkbox answers arrive comma-joined in Sheets.
+        for k, v in list(form.items()):
+            if "health check" in k.lower() or "rather avoid" in k.lower():
+                form[k] = [x.strip() for x in str(v).split(",") if x.strip()]
+        res = call_tool("ingest_intake_form", {"form_response_json": form, "start_date": start_date})
+        if not res.get("ok"):
+            errors.append({"sheet_row": i, "error": res.get("error")})
+        elif res.get("duplicate"):
+            dup += 1
+        else:
+            ingested.append({"sheet_row": i, "athlete_id": res["athlete_id"], "race_id": res["race_id"],
+                             "goal_type": res["goal_type"], "next_steps": res["next_steps"],
+                             "warnings": res["warnings"]})
+    return {"ok": True, "ingested": ingested, "duplicates": dup, "errors": errors}
+
+
+def link_chat(chat_ref, athlete_id=None, email=None):
+    """Tie an athlete to the chat they message from. chat_ref = the platform and
+    user id shown in your Current Session Context (e.g. 'telegram:123456789')."""
+    conn = connect()
+    if not athlete_id:
+        r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE lower(email)=lower(?)", (email or "",)).fetchone()
+        if not r:
+            raise ToolError("no athlete with that email -- have they submitted the intake form?")
+        athlete_id = r["athlete_id"]
+    _get_athlete(conn, athlete_id)
+    other = conn.execute("SELECT athlete_id FROM athlete_profile WHERE chat_ref=? AND athlete_id!=?",
+                         (chat_ref, athlete_id)).fetchone()
+    if other:
+        raise ToolError(f"chat {chat_ref!r} is already linked to athlete {other['athlete_id']!r}")
+    conn.execute("UPDATE athlete_profile SET chat_ref=?, updated_at=? WHERE athlete_id=?", (chat_ref, _now(), athlete_id))
+    conn.commit()
+    return {"ok": True, "athlete_id": athlete_id, "chat_ref": chat_ref}
+
+
+GATE_TEMPLATE = '''#!/usr/bin/env python3
+# Generated by run-coach install_checkin_gate. Cron pre-run gate: wakes the
+# agent only when {athlete_id} has a check-in due. Safe to delete (then remove
+# the matching cron job).
+import json, os, sys
+sys.path.insert(0, {scripts_dir!r})
+os.environ.setdefault("COACH_DB", {db!r})
+import coach_tools
+due = coach_tools.get_due_checkins(athlete_id={athlete_id!r})["due"]
+if not due:
+    print(json.dumps({{"wakeAgent": False}}))
+else:
+    print(json.dumps({{"wakeAgent": True, "context": {{"athlete_id": {athlete_id!r},
+        "due_checkins": [{{"trigger_id": t["trigger_id"], "prompt": t["prompt_template"]}} for t in due]}}}}))
+'''
+
+
+def install_checkin_gate(athlete_id):
+    """Write the athlete's cron gate script into $HERMES_HOME/scripts and
+    return the exact cronjob call to create. Call this FROM THE ATHLETE'S
+    CHAT so the job's default delivery ('origin') is that chat."""
+    conn = connect()
+    athlete = _get_athlete(conn, athlete_id)
+    home = hermes_home() or os.path.expanduser("~/.hermes")
+    scripts = os.path.join(home, "scripts")
+    os.makedirs(scripts, exist_ok=True)
+    name = f"run-coach-due-{athlete_id}.py"
+    with open(os.path.join(scripts, name), "w") as f:
+        f.write(GATE_TEMPLATE.format(athlete_id=athlete_id, scripts_dir=KIT_DIR, db=db_path()))
+    workdir = os.path.join(home, "run_coach")
+    prompt = (f"Run-coach check-ins for athlete {athlete_id} ({athlete['name']}). The pre-run context lists "
+              f"the due check-ins. Load the run-coach skill and follow playbook F: for EACH trigger_id call "
+              f"check_trigger_staleness first, then get_athlete_summary, then act. Your final response is sent "
+              f"straight to the athlete: write only the message to them, friendly and short. If every due "
+              f"check-in turned out stale or needs no message, reply with only [SILENT].")
+    return {"ok": True, "gate_script": os.path.join(scripts, name),
+            "cronjob_call": {"action": "create", "name": f"run-coach checkins {athlete_id}",
+                             "schedule": "every day at 7am", "script": name, "skill": "run-coach",
+                             "workdir": workdir, "attach_to_session": True, "prompt": prompt},
+            "instruction": "Create the job with your cronjob_manage tool using cronjob_call exactly, from this "
+                           "athlete's chat (delivery defaults to origin). Adjust the time to suit the athlete."}
+
+
 TOOLS = {f.__name__: f for f in [
     init_db, list_athletes, ingest_intake_form, update_athlete_profile, record_course_info,
     generate_program, parse_run_file, match_run_to_program, compare_run_to_program, record_missed_session,
     get_upcoming_sessions, write_program_revision, schedule_checkin, get_due_checkins,
-    check_trigger_staleness, get_athlete_summary,
+    check_trigger_staleness, get_athlete_summary, ingest_sheet_rows, link_chat, install_checkin_gate,
 ]}
 
 

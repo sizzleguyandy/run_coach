@@ -1,7 +1,7 @@
 """
 race_plan.py — deterministic program generator for goal_type='race'.
 
-Implements the PROGRAM GENERATION RULES from AGENT_INSTRUCTIONS.md as
+Implements the PROGRAM GENERATION RULES from references/coaching-rules.md as
 code, so they are guaranteed rather than usually-followed:
 
   - Weekly volume grows at most 10% week over week (build weeks), with
