@@ -117,6 +117,30 @@ doesn't, save it under `$HERMES_HOME/run_coach/uploads/`.
 `get_athlete_summary {"chat_ref": ...}` (or
 `get_upcoming_sessions`), and answer only from what it returns.
 
+### C2. Progress and trends ("am I getting fitter?", weekly reviews)
+
+Run `get_trends {"chat_ref": ...}` (or `athlete_id`). It covers the
+athlete's whole history and gets richer as it grows:
+
+| `tier` | When | What you can tell them |
+|---|---|---|
+| `building_baseline` | under 14 days or under 4 runs | Nothing yet. Tell them when trends start (`next_unlock`) and keep logging runs |
+| `early` | 2–3 weeks | Consistency (sessions done of planned, streak), last week vs the one before and vs plan, walk/run step progress |
+| `developing` | 4–7 weeks | Adds: aerobic fitness (easy pace at the same heart rate), long-run heart-rate drift, most-missed weekday, time-trial progression |
+| `established` | 8+ weeks | Adds: last 4 weeks vs the previous 4 |
+
+How to use it:
+- Use the `feedback` lines. They already contain the numbers and the
+  evidence (e.g. "13 easy runs over 26 days"). Pick the 1–3 that
+  matter most this week, and lead with good news that's real.
+- A "declining" or warning line gets said plainly, with what you'll
+  do about it (playbook E or D).
+- A most-missed weekday: offer to move that session (playbook E).
+- Only mention aerobic fitness when it's `available`, and include its
+  caveat: heat, hills and tiredness all move it.
+- Don't turn two runs into a trend, and don't add a trend that isn't
+  in the report.
+
 ### D. Missed session, illness, pain
 
 - **Missed:** `record_missed_session {"program_row_id": ...}`. Never
@@ -215,7 +239,12 @@ revision history are kept.
 
 ### J. The owner asks about athletes
 
-`list_athletes`, then `get_athlete_summary` for any athlete they name.
+`get_squad_overview`: one row per athlete showing data tier,
+consistency over the last 4 weeks, volume and aerobic-fitness
+direction, active warning signs and days since their last run.
+`needs_attention` lists anyone with an active warning, no run for 7+
+days, or consistency under 60%. For detail, run `get_trends` and
+`get_athlete_summary` for any athlete they name.
 The owner can see everything. Athletes only ever see their own data.
 
 ### K. An athlete leaves or pauses

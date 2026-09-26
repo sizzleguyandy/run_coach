@@ -193,6 +193,30 @@ TONE AND HONESTY
   the most useful thing you can tell them.
 ```
 
+## 2b. Trends and history
+
+Every run, planned session (done, missed or moved), plan revision and
+warning-sign event is kept, so progress can be measured over the whole
+history. The same division of labour applies: `trends.py` computes and
+`get_trends` reports; the agent chooses what to say.
+
+- **No trends before 2 weeks and 4 runs.** Early numbers are noise, and
+  a "trend" from three runs is a guess dressed as data.
+- **More unlocks with time:** consistency and volume at 2 weeks;
+  aerobic fitness, long-run drift, schedule patterns and time trials at
+  4 weeks; block-vs-block comparison at 8 weeks.
+- **Aerobic fitness is pace at the same heart rate on easy and long
+  runs,** comparing the first 2 weeks of data with the latest 2. It's
+  the most honest fitness signal a watch gives, but heat, hills and
+  fatigue move it, so it's always reported with its evidence and
+  caveat.
+- **Volume is always shown against the plan and the plan's phase.** A
+  jump after a planned easier week isn't a risky spike, and a drop in
+  one isn't a problem.
+- **Warning signs keep their history** (`signal_event`). "Long-run HR
+  drift has hit its threshold twice since October" is more useful than
+  today's streak alone.
+
 ## 3. Tools
 
 Every tool is in `scripts/coach_tools.py`, and parameters are defined

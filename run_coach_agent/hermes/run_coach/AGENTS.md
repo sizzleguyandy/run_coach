@@ -20,6 +20,8 @@ RC="python3 ${HERMES_HOME:-$HOME/.hermes}/skills/fitness/run-coach/scripts/coach
 $RC --list                                  # every tool
 $RC get_athlete_summary '{"chat_ref": "telegram:123456789"}'
 $RC get_due_checkins '{}'
+$RC get_trends '{"chat_ref": "telegram:123456789"}'
+$RC get_squad_overview '{}'                   # owner only
 ```
 
 ## Rules for work in this folder

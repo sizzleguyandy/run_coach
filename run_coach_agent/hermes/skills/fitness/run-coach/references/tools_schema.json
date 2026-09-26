@@ -304,6 +304,41 @@
     {
       "type": "function",
       "function": {
+        "name": "get_trends",
+        "description": "Progress trends from the athlete's whole history: weekly totals vs plan, consistency and streaks, aerobic fitness (easy pace at the same heart rate), long-run HR drift, most-missed weekday, time-trial progression, walk/run step progress, block comparison, warning-sign history. Needs 14 days and 4 runs (tier building_baseline until then, with next_unlock saying what's missing); more metrics unlock at 4 and 8 weeks. Relay the evidence-backed `feedback` lines; never compute or claim a trend yourself.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "chat_ref": {
+              "type": "string"
+            },
+            "include_weekly_table": {
+              "type": "boolean",
+              "description": "Default true; false for a shorter response."
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_squad_overview",
+        "description": "Owner only. One row per athlete with an active goal: data tier, 4-week consistency, volume and aerobic-fitness direction, active warning signs, days since last run, plus a needs_attention list. Never show this to an athlete.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
         "name": "parse_run_file",
         "description": "Parse an uploaded .fit or .gpx file and log it in run_log (duplicates are detected, not re-inserted). Pure code -- ALWAYS use this rather than estimating a run's numbers. If data_quality_warning is set, tell the athlete what's missing.",
         "parameters": {

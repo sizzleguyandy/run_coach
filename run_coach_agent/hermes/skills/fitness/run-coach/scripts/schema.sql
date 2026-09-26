@@ -171,6 +171,23 @@ CREATE TABLE signal_state (
 );
 
 -- ============================================================
+-- SIGNAL_EVENT — append-only history behind signal_state. signal_state
+-- only holds the CURRENT streak; this keeps every flagged/clean event so
+-- trends can show how often a pattern has appeared over months.
+-- ============================================================
+CREATE TABLE signal_event (
+    event_id              TEXT PRIMARY KEY,
+    athlete_id            TEXT NOT NULL REFERENCES athlete_profile(athlete_id),
+    signal_name           TEXT NOT NULL,
+    occurred_at           TEXT NOT NULL,
+    run_log_id            TEXT REFERENCES run_log(run_log_id),
+    program_row_id        TEXT REFERENCES program(program_row_id),
+    flagged               INTEGER NOT NULL,        -- 1 = this event extended the streak
+    streak_after          INTEGER NOT NULL,
+    threshold_met         INTEGER NOT NULL
+);
+
+-- ============================================================
 -- CHECKIN_TRIGGER — scheduled or conditional check-ins bound to
 -- specific plan events (day after a time trial, Nth consecutive
 -- flagged pattern), not arbitrary calendar cadence.
@@ -208,4 +225,5 @@ CREATE TABLE intake_response (
 CREATE INDEX idx_program_athlete_date ON program(athlete_id, session_date);
 CREATE INDEX idx_runlog_athlete_date ON run_log(athlete_id, recorded_at);
 CREATE INDEX idx_program_status ON program(status);
+CREATE INDEX idx_signal_event_athlete ON signal_event(athlete_id, occurred_at);
 CREATE INDEX idx_intake_athlete ON intake_response(athlete_id, received_at);

@@ -35,6 +35,7 @@ from general_fitness import (DEFAULT_WEEKS as GF_WEEKS, WALK_RUN_LADDER, _walk_r
                              generate_general_fitness_plan)
 from gpx_parser import parse_gpx
 from race_plan import generate_race_plan
+from trends import build_trends
 
 KIT_DIR = os.path.dirname(os.path.abspath(__file__))
 SESSION_TYPES = {"easy", "quality", "long", "time_trial", "race", "rest", "walk_run"}
@@ -75,6 +76,15 @@ def connect():
     if not conn.execute("SELECT name FROM sqlite_master WHERE name='athlete_profile'").fetchone():
         with open(os.path.join(KIT_DIR, "schema.sql")) as f:
             conn.executescript(f.read())
+        conn.commit()
+    elif not conn.execute("SELECT name FROM sqlite_master WHERE name='signal_event'").fetchone():
+        # Databases created before trends existed: add the history table.
+        with open(os.path.join(KIT_DIR, "schema.sql")) as f:
+            ddl = f.read()
+        start = ddl.index("CREATE TABLE signal_event")
+        conn.executescript(ddl[start:ddl.index(");", start) + 2]
+                           + "\nCREATE INDEX IF NOT EXISTS idx_signal_event_athlete "
+                             "ON signal_event(athlete_id, occurred_at);")
         conn.commit()
     return conn
 
@@ -539,7 +549,9 @@ def generate_program(athlete_id, race_id, reason, constraints=None, general_fitn
     gf = goal["goal_type"] == "general_fitness"
     for wk, last in sorted(last_by_week.items()):
         prompt = (f"Week {wk} review: ask how the week went. Mark any unlogged session with "
-                  f"record_missed_session (or ask for the file). ")
+                  f"record_missed_session (or ask for the file). Call get_trends: if tier is "
+                  f"building_baseline, say briefly how long until progress trends start (next_unlock); "
+                  f"otherwise include the 1-3 most useful lines from its feedback, real numbers first. ")
         prompt += ("Only let next week progress if this one felt comfortable and pain-free; otherwise "
                    "regenerate at the same level (general_fitness_start_level)." if gf else
                    "Check signals from get_athlete_summary before confirming next week.")
@@ -672,10 +684,21 @@ def compare_run_to_program(run_log_id, program_row_id=None):
         new = analysis.update_signal_state(cur, name, now, comparison=comp, run_log_id=run_log_id)
         if new["updated"]:
             _save_signal(conn, run["athlete_id"], new)
+            new["flagged_this_event"] = new["current_streak"] > (cur["current_streak"] if cur else 0)
+            _log_signal_event(conn, run["athlete_id"], new, run["recorded_at"],
+                              run_log_id=run_log_id, program_row_id=program_row_id)
         signals[name] = new
     conn.commit()
     return {"ok": True, "comparison": comp.__dict__, "session": prog, "signals": signals,
             "actions_needed": [n for n, s in signals.items() if s.get("action_threshold_met")]}
+
+
+def _log_signal_event(conn, athlete_id, st, occurred_at, run_log_id=None, program_row_id=None):
+    """occurred_at = when it happened (run start / session date), not when logged."""
+    conn.execute("INSERT INTO signal_event VALUES (?,?,?,?,?,?,?,?,?)",
+                 (_id("sig"), athlete_id, st["signal_name"], occurred_at, run_log_id, program_row_id,
+                  int(bool(st.get("flagged_this_event"))),
+                  st["current_streak"], int(st["action_threshold_met"])))
 
 
 def _save_signal(conn, athlete_id, st):
@@ -700,6 +723,8 @@ def record_missed_session(program_row_id, athlete_note=None):
     st = analysis.update_signal_state(cur, name, _now(), missed_program_row=prog)
     if st["updated"]:
         _save_signal(conn, prog["athlete_id"], st)
+        st["flagged_this_event"] = True
+        _log_signal_event(conn, prog["athlete_id"], st, prog["session_date"], program_row_id=program_row_id)
     if athlete_note:
         conn.execute("UPDATE signal_state SET notes=? WHERE athlete_id=? AND signal_name=?",
                      (athlete_note, prog["athlete_id"], name))
@@ -1002,11 +1027,97 @@ def install_checkin_gate(athlete_id):
                            "athlete's chat (delivery defaults to origin). Adjust the time to suit the athlete."}
 
 
+def _ladder_progress(sessions):
+    """Walk/run athletes: which ladder rung they've reached, from sessions done."""
+    done = sorted((s for s in sessions if s["session_type"] == "walk_run" and s["status"] == "done"),
+                  key=lambda s: s["session_date"])
+    rungs = []
+    for s in done:
+        for i, rung in enumerate(WALK_RUN_LADDER):
+            if _walk_run_label(*rung) in (s["session_label"] or ""):
+                rungs.append(i)
+                break
+    if len(rungs) < 2:
+        return None
+    first, best = rungs[0], max(rungs)
+    total = len(WALK_RUN_LADDER)
+    run_min = lambda i: WALK_RUN_LADDER[i][0] * WALK_RUN_LADDER[i][2] if WALK_RUN_LADDER[i][1] else WALK_RUN_LADDER[i][0]
+    return {"sessions_done": len(rungs), "first_step": first + 1, "highest_step": best + 1, "steps_total": total,
+            "text": f"Walk/run: from step {first + 1} to step {best + 1} of {total} "
+                    f"({run_min(first):g} -> {run_min(best):g} min of running per session) "
+                    f"over {len(rungs)} completed sessions."}
+
+
+def _trend_inputs(conn, athlete_id):
+    runs = [dict(r) for r in conn.execute(
+        "SELECT r.*, p.session_type AS _session_type, p.session_label AS _session_label "
+        "FROM run_log r LEFT JOIN program p ON p.program_row_id = r.matched_program_row_id "
+        "WHERE r.athlete_id=? ORDER BY r.recorded_at", (athlete_id,))]
+    for r in runs:
+        r["_splits"] = json.loads(r["splits_json"]) if r.get("splits_json") else []
+    sessions = [dict(s) for s in conn.execute(
+        "SELECT * FROM program WHERE athlete_id=? AND status IN ('pending','done','missed') ORDER BY session_date",
+        (athlete_id,))]
+    events = [dict(e) for e in conn.execute("SELECT * FROM signal_event WHERE athlete_id=? ORDER BY occurred_at",
+                                            (athlete_id,))]
+    return runs, sessions, events
+
+
+def get_trends(athlete_id=None, chat_ref=None, include_weekly_table=True):
+    """Progress trends from the athlete's whole history. Needs 14 days and 4
+    logged runs before anything is reported; more metrics unlock at 4 and 8
+    weeks. Relay `feedback` (already evidence-backed); never compute your own."""
+    conn = connect()
+    if not athlete_id:
+        r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE chat_ref=?", (chat_ref or "",)).fetchone()
+        if not r:
+            raise ToolError("pass athlete_id, or a linked chat_ref")
+        athlete_id = r["athlete_id"]
+    _get_athlete(conn, athlete_id)
+    goal = _active_goal(conn, athlete_id) or {}
+    runs, sessions, events = _trend_inputs(conn, athlete_id)
+    report = build_trends(runs, sessions, events, _today(), goal.get("goal_type", "race"),
+                          ladder_progress=_ladder_progress(sessions))
+    if not include_weekly_table:
+        report.pop("weekly", None)
+    return {"ok": True, "athlete_id": athlete_id, **report}
+
+
+def get_squad_overview():
+    """Owner view: one row per athlete with an active goal -- data tier,
+    consistency, volume direction, aerobic trend, warnings, last run."""
+    conn = connect()
+    today = _today()
+    rows = []
+    for a in conn.execute("SELECT athlete_id, name FROM athlete_profile ORDER BY name"):
+        goal = _active_goal(conn, a["athlete_id"])
+        if not goal:
+            continue
+        runs, sessions, events = _trend_inputs(conn, a["athlete_id"])
+        t = build_trends(runs, sessions, events, today, goal["goal_type"])
+        last = max((r["recorded_at"][:10] for r in runs), default=None)
+        active = [dict(s) for s in conn.execute(
+            "SELECT signal_name, current_streak FROM signal_state WHERE athlete_id=? AND current_streak>0",
+            (a["athlete_id"],))]
+        c4 = t.get("consistency_last_4_weeks") or {}
+        rows.append({"athlete_id": a["athlete_id"], "name": a["name"], "goal": goal["race_name"],
+                     "goal_type": goal["goal_type"], "tier": t["tier"], "runs_logged": t["runs_logged"],
+                     "consistency_4wk_pct": c4.get("pct"),
+                     "volume_direction": (t.get("volume_week_on_week") or {}).get("direction"),
+                     "aerobic_direction": (t.get("aerobic_fitness") or {}).get("direction"),
+                     "last_run": last, "days_since_last_run": (today - date.fromisoformat(last)).days if last else None,
+                     "active_signals": active})
+    needs_attention = [r["name"] for r in rows if r["active_signals"] or (r["days_since_last_run"] or 0) >= 7
+                       or (r["consistency_4wk_pct"] is not None and r["consistency_4wk_pct"] < 60)]
+    return {"ok": True, "today": today.isoformat(), "athletes": rows, "needs_attention": needs_attention}
+
+
 TOOLS = {f.__name__: f for f in [
     init_db, list_athletes, ingest_intake_form, update_athlete_profile, record_course_info,
     generate_program, parse_run_file, match_run_to_program, compare_run_to_program, record_missed_session,
     get_upcoming_sessions, write_program_revision, schedule_checkin, get_due_checkins,
     check_trigger_staleness, get_athlete_summary, ingest_sheet_rows, link_chat, install_checkin_gate,
+    get_trends, get_squad_overview,
 ]}
 
 

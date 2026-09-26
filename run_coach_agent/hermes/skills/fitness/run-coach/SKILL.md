@@ -58,6 +58,8 @@ on first use. Full parameter definitions are in
 | `parse_run_file` → `match_run_to_program` → `compare_run_to_program` | Log and assess a run |
 | `record_missed_session` | Mark a session missed |
 | `get_upcoming_sessions` | Sessions in a date range |
+| `get_trends` | Progress over the athlete's whole history (needs 2+ weeks; more unlocks at 4 and 8 weeks) |
+| `get_squad_overview` | Owner only: every athlete's trend direction, consistency and warnings in one table |
 | `write_program_revision` | Move or replace sessions (`dry_run` first) |
 | `schedule_checkin`, `get_due_checkins`, `check_trigger_staleness` | Extra check-ins and the check-in sweep |
 
@@ -102,7 +104,14 @@ event. The coaching rules and the reasons behind them are in
 6. **Check-in cron run** (playbook F): for each due `trigger_id`, call
    `check_trigger_staleness` first, then act. Your final response goes
    to the athlete. Reply `[SILENT]` if there's nothing to send.
-7. **General-fitness week review** (playbook G): progress only after a
+7. **Progress and trends** (playbook C2): for "how am I doing?", weekly
+   reviews and anything about progress, call `get_trends`.
+   - Relay its `feedback` lines, real numbers first, most useful 1–3.
+   - If `tier` is `building_baseline`, say how long until trends
+     start (`next_unlock`). Don't improvise trends from a handful of
+     runs.
+   - The owner asking about everyone → `get_squad_overview`.
+8. **General-fitness week review** (playbook G): progress only after a
    comfortable, pain-free week. Otherwise
    `generate_program` with `"general_fitness_start_level": {"repeat_last_week": true}`
    and `start_date` set to next Monday.
@@ -119,6 +128,9 @@ event. The coaching rules and the reasons behind them are in
   suggestion honestly. Don't work around it.
 - Never write athlete facts to memory, and never mention one athlete
   to another.
+- Trends come only from `get_trends`. It needs at least 2 weeks and 4
+  runs, and each line states its evidence. Don't compute or claim a
+  trend yourself.
 
 ## Pitfalls
 

@@ -34,12 +34,33 @@ gateway such as Telegram.
 | `memories/USER.md` | Agent-maintained profile of **you** | Not shipped. The agent fills it in as it learns about the owner |
 | `skills/fitness/run-coach/SKILL.md` | On-demand skill (`/run-coach`) | When to use it, every tool, the core procedure, pitfalls, verification |
 | `skills/fitness/run-coach/references/` | Loaded on demand | `playbooks.md` (step by step), `coaching-rules.md` (rules and reasons), `intake-form.md` (form spec), `tools_schema.json` |
-| `skills/fitness/run-coach/scripts/` | Skill scripts | `coach_tools.py` (all tools, command line), race and general-fitness generators, FIT/GPX parsers, analysis, `schema.sql`, `tests/` |
+| `skills/fitness/run-coach/scripts/` | Skill scripts | `coach_tools.py` (all tools, command line), race and general-fitness generators, `trends.py`, FIT/GPX parsers, analysis, `schema.sql`, `tests/` |
 | `skills/fitness/run-coach/examples/` | Examples | Sample race and general-fitness form responses, a sample GPX |
 | `run_coach/AGENTS.md` | Project rules for the workspace | Loaded into cron jobs, which run with `workdir` set here |
 | `run_coach/coach.db` | Data | Created on first use. Every athlete's history, outside the skill so updates never touch it |
 | `scripts/run-coach-backup.py` | Cron script (no-agent) | Daily DB backup, keeps 30 |
 | `scripts/run-coach-due-<id>.py` | Cron pre-run gate | Generated per athlete; only wakes the agent when a check-in is due |
+
+## Progress trends
+
+Every run, session (done or missed), plan change and warning sign is
+kept. `get_trends` turns that history into feedback that gets richer
+as it grows:
+
+- **Under 2 weeks or 4 runs:** no trends yet; it tells the athlete when
+  they start.
+- **2–3 weeks:** consistency and streaks, weekly volume against the
+  plan, walk/run step progress.
+- **4–7 weeks:** adds aerobic fitness (easy pace at the same heart
+  rate), long-run heart-rate drift, the most-missed weekday, and
+  time-trial progression.
+- **8+ weeks:** adds a comparison of the last 4 weeks with the 4
+  before.
+
+Every line comes with its evidence (e.g. "13 easy runs over 26 days").
+Weekly check-ins include the 1–3 most useful lines automatically.
+`get_squad_overview` gives you, the owner, one table across all
+athletes, with a "needs attention" list.
 
 ## Scheduled jobs
 
@@ -75,7 +96,7 @@ Created by the agent during setup and onboarding, following
 
 ```bash
 cd hermes/skills/fitness/run-coach/scripts
-python3 -m unittest discover -s tests        # 10 end-to-end tests
+python3 -m unittest discover -s tests        # 12 end-to-end tests (incl. a 9-week trend simulation)
 python3 general_fitness.py                   # preview a general-fitness block
 python3 race_plan.py                         # preview a race build
 ```
