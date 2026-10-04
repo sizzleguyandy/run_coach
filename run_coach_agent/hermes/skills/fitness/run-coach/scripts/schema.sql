@@ -256,6 +256,7 @@ CREATE TABLE other_activity (
     avg_hr                REAL,
     max_hr                REAL,
     perceived_exertion    REAL,
+    strength_json         TEXT,                   -- exercises/sets/kg/reps + focus (lower/upper/full/core), parsed from Hevy's log
     feedback_sent_at      TEXT,
     created_at            TEXT NOT NULL
 );

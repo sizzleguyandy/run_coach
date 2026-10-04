@@ -34,7 +34,7 @@ gateway such as Telegram.
 | `memories/USER.md` | Agent-maintained profile of **you** | Not shipped. The agent fills it in as it learns about the owner |
 | `skills/fitness/run-coach/SKILL.md` | On-demand skill (`/run-coach`) | When to use it, every tool, the core procedure, pitfalls, verification |
 | `skills/fitness/run-coach/references/` | Loaded on demand | `playbooks.md` (step by step), `coaching-rules.md` (rules and reasons), `intake-form.md` (form spec), `tools_schema.json` |
-| `skills/fitness/run-coach/scripts/` | Skill scripts | `coach_tools.py` (all tools, command line), race and general-fitness generators, `strava.py`, `trends.py`, `history.py`, FIT/GPX parsers, analysis, `schema.sql`, `tests/` |
+| `skills/fitness/run-coach/scripts/` | Skill scripts | `coach_tools.py` (all tools, command line), race and general-fitness generators, `strava.py`, `hevy.py`, `trends.py`, `history.py`, FIT/GPX parsers, analysis, `schema.sql`, `tests/` |
 | `skills/fitness/run-coach/examples/` | Examples | Sample race and general-fitness form responses, a sample GPX |
 | `run_coach/AGENTS.md` | Project rules for the workspace | Loaded into cron jobs, which run with `workdir` set here |
 | `run_coach/coach.db` | Data: live coaching state | Plans, sessions, signals. Created on first use, outside the skill so updates never touch it |
@@ -51,6 +51,12 @@ Athletes who connect Strava don't need to send files:
   feedback.
 - A strength session the day before a key run is flagged.
 - Race plans start from their real last 4 weeks rather than the form.
+
+**Hevy / Hevy Coach:** workouts athletes log in Hevy and post to
+Strava include the full set-by-set log. Bob reads it, knows a leg day
+from an upper-body day (only leg days are flagged before key runs), and
+reports lift progress, e.g. "Lat Pulldown 62.5 kg x 7 -> 70 kg x 7".
+Each athlete turns on Hevy → Settings → Integrations → Strava.
 
 Connecting is one link: they authorise on Strava, then paste the
 resulting `http://localhost…` address back to the bot. No web server
@@ -211,7 +217,7 @@ Created by the agent during setup and onboarding, following
 
 ```bash
 cd hermes/skills/fitness/run-coach/scripts
-python3 -m unittest discover -s tests        # 33 tests (incl. safety checks, full athlete lifecycles, Sheet onboarding, trends, history)
+python3 -m unittest discover -s tests        # 37 tests (incl. safety checks, full athlete lifecycles, Sheet onboarding, trends, history)
 python3 general_fitness.py                   # preview a general-fitness block
 python3 race_plan.py                         # preview a race build
 ```

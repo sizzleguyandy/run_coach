@@ -789,7 +789,7 @@
       "type": "function",
       "function": {
         "name": "get_pending_feedback",
-        "description": "Strava runs and workouts the coach hasn't commented on yet, runs with plan comparison notes (incl. strength-before-key-run warnings). After messaging the athlete, call mark_feedback_sent.",
+        "description": "Strava runs and workouts the coach hasn't commented on yet, runs with plan comparison notes (incl. strength-before-key-run warnings). After messaging the athlete, call mark_feedback_sent. Strength sessions with a Hevy log include `workout`: focus (lower/upper/full/core), sets, volume, top set per exercise; only leg-loading sessions trigger the before-key-run note.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -863,7 +863,8 @@
               "type": "string"
             },
             "description": {
-              "type": "string"
+              "type": "string",
+              "description": "Free text; a Hevy workout log pasted here is read set by set (exercises, kg, reps, lower/upper/full/core)."
             },
             "perceived_exertion": {
               "type": "number"

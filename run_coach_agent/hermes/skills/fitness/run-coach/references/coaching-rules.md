@@ -227,6 +227,10 @@ code, so extra agents couldn't make those more accurate.
   - A strength session within 30 hours before a long, quality or
     time-trial run is flagged on that run.
   - Weekly reviews and trends report them.
+- **Hevy logs** (Hevy / Hevy Coach posts the full set-by-set log to
+  Strava) are parsed into exercises, sets, kg and reps, and classed as
+  lower, upper, full body or core. Only leg-loading sessions trigger
+  the day-before-key-run warning. Lift progress is reported in trends.
 - **Real running beats form answers.** If there are 3+ logged runs in
   the 4 weeks before a race plan starts, the plan starts from them
   rather than the form.

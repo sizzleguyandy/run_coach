@@ -64,7 +64,7 @@ Data lives in `$HERMES_HOME/run_coach/`, created on first use:
 | `strava_connect_link` / `strava_complete_connect` | Connect an athlete's Strava (link → they paste back the localhost address) |
 | `strava_sync` / `strava_status` / `strava_disconnect` | Pull new runs + workouts (the hourly job does this) / connection state / stop |
 | `get_pending_feedback` / `mark_feedback_sent` | New Strava activities you haven't commented on yet |
-| `log_other_activity` | Record a gym / cross-training session the athlete told you about |
+| `log_other_activity` | Record a gym / cross-training session the athlete told you about (paste a Hevy log as `description` and it's read set by set) |
 | `get_review_tasks` | Ready-made second-opinion tasks (free-text safety review, race check) to pass to `delegate_task` |
 | `record_safety_review` | Store the safety review; the more cautious of reviewer and you wins |
 | `verify_race_info` / `confirm_race_info` | Two independent race sources must agree, or the owner confirms |

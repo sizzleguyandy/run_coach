@@ -18,6 +18,7 @@ Trends need history, and they get richer as it builds up:
 Every metric reports how many runs/weeks it's based on, and a metric
 without enough data says so instead of guessing.
 """
+import json
 import re
 import statistics
 from datetime import date, datetime, timedelta
@@ -242,16 +243,68 @@ def signal_history(events):
 # ---- entry point -------------------------------------------------------
 
 def other_training(other, today, weeks=4):
-    """Strength / mobility / cross-training over the last `weeks` weeks."""
+    """Strength / mobility / cross-training over the last `weeks` weeks, with
+    strength split by focus when the session has a Hevy log."""
     cutoff = _week_start(today) - timedelta(weeks=weeks)
     recent = [o for o in other if _d(o["start_at"]) >= cutoff]
-    by_cat = {}
+    by_cat, focus = {}, {}
     for o in recent:
         c = by_cat.setdefault(o["category"], {"sessions": 0, "minutes": 0.0})
         c["sessions"] += 1
         c["minutes"] += o.get("elapsed_min") or 0
+        if o.get("strength_json"):
+            f = json.loads(o["strength_json"])["focus"]
+            focus[f] = focus.get(f, 0) + 1
     return {"weeks": weeks, "by_category": {k: {"sessions": v["sessions"], "minutes": round(v["minutes"])}
-                                            for k, v in by_cat.items()}}
+                                            for k, v in by_cat.items()},
+            "strength_focus": focus}
+
+
+def strength_progress(other, min_days=14, limit=3):
+    """Per exercise: first vs latest top set, for exercises logged in 2+ sessions
+    at least `min_days` apart (Hevy logs only). Biggest changes first."""
+    seen = {}
+    for o in sorted(other, key=lambda o: o["start_at"]):
+        if not o.get("strength_json"):
+            continue
+        for e in json.loads(o["strength_json"])["exercises"]:
+            t = e.get("top_set") or {}
+            if not t.get("weight_kg") or not t.get("reps"):
+                continue
+            seen.setdefault(e["name"], []).append((_d(o["start_at"]), t["weight_kg"], t["reps"]))
+    out = []
+    for name, hist in seen.items():
+        (d0, w0, r0), (d1, w1, r1) = hist[0], hist[-1]
+        if (d1 - d0).days < min_days:
+            continue
+        a, b = w0 * (1 + r0 / 30), w1 * (1 + r1 / 30)
+        out.append({"exercise": name, "first": f"{w0:g} kg x {r0}", "latest": f"{w1:g} kg x {r1}",
+                    "first_date": d0.isoformat(), "latest_date": d1.isoformat(), "sessions": len(hist),
+                    "change_pct": round(100 * (b - a) / a, 1)})
+    out.sort(key=lambda x: -abs(x["change_pct"]))
+    return out[:limit]
+
+
+def strength_block(other, today):
+    """Strength / cross-training extras and feedback. Independent of running
+    history, so it's reported even before running trends unlock."""
+    extra, fb = {}, []
+    if not other:
+        return extra, fb
+    ot = other_training(other, today)
+    extra["other_training_4_weeks"] = ot
+    st = ot["by_category"].get("strength")
+    if st:
+        split = ", ".join(f"{n} {f}" for f, n in sorted(ot["strength_focus"].items())) if ot["strength_focus"] else ""
+        fb.append({"topic": "strength", "evidence": f"{st['sessions']} sessions",
+                   "text": f"Strength: {st['sessions']} session(s), {st['minutes']} min in the last 4 weeks "
+                           f"(about {st['sessions'] / 4:.1f} a week)" + (f": {split}." if split else ".")})
+    prog = strength_progress(other)
+    if prog:
+        extra["strength_progress"] = prog
+        fb.append({"topic": "strength_progress", "evidence": f"{len(prog)} lifts logged in Hevy",
+                   "text": "Lifts: " + "; ".join(f"{p['exercise']} {p['first']} -> {p['latest']}" for p in prog) + "."})
+    return extra, fb
 
 
 def build_trends(runs, sessions, signal_events, today, goal_type="race", ladder_progress=None, other=None):
@@ -262,11 +315,12 @@ def build_trends(runs, sessions, signal_events, today, goal_type="race", ladder_
     for s in sessions:
         s["_date"] = _d(s["session_date"])
     unit = "minutes" if goal_type == "general_fitness" else "km"
+    strength_extra, strength_fb = strength_block(other, today)
 
     if not runs:
-        return {"tier": "building_baseline", "runs_logged": 0, "days_of_data": 0,
-                "feedback": [], "next_unlock": f"Trends start once {MIN_RUNS} runs over {MIN_DAYS} days are "
-                                                f"logged. No runs logged yet."}
+        return {"tier": "building_baseline", "runs_logged": 0, "days_of_data": 0, **strength_extra,
+                "feedback": strength_fb, "next_unlock": f"Running trends start once {MIN_RUNS} runs over "
+                                                        f"{MIN_DAYS} days are logged. No runs logged yet."}
     first = min(r["_date"] for r in runs)
     days = (today - first).days + 1
     weeks_of_data = days // 7
@@ -279,8 +333,8 @@ def build_trends(runs, sessions, signal_events, today, goal_type="race", ladder_
         if n < MIN_RUNS:
             need.append(f"{MIN_RUNS - n} more logged run(s)")
         return {"tier": "building_baseline", "runs_logged": n, "days_of_data": days,
-                "first_run": first.isoformat(), "feedback": [],
-                "next_unlock": "Trends start after " + " and ".join(need) + "."}
+                "first_run": first.isoformat(), **strength_extra, "feedback": strength_fb,
+                "next_unlock": "Running trends start after " + " and ".join(need) + "."}
 
     tier = ("established" if weeks_of_data >= TIER_ESTABLISHED_WEEKS else
             "developing" if weeks_of_data >= TIER_DEVELOPING_WEEKS else "early")
@@ -292,14 +346,8 @@ def build_trends(runs, sessions, signal_events, today, goal_type="race", ladder_
               "volume_week_on_week": _volume_trend(weeks, unit, 1),
               "signals": signal_history(signal_events)}
     feedback = []
-    if other:
-        ot = other_training(other, today)
-        report["other_training_4_weeks"] = ot
-        st = ot["by_category"].get("strength")
-        if st:
-            feedback.append({"topic": "strength", "evidence": f"{st['sessions']} sessions",
-                             "text": f"Strength: {st['sessions']} session(s), {st['minutes']} min in the last 4 weeks "
-                                     f"(about {st['sessions'] / 4:.1f} a week)."})
+    report.update(strength_extra)
+    feedback += strength_fb
 
     c4 = report["consistency_last_4_weeks"]
     if c4:

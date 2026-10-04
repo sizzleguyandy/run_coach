@@ -35,6 +35,7 @@ import analysis
 import history
 import plan_review
 import safety_checks
+import hevy
 import strava
 from fit_parser import parse_fit
 from general_fitness import (DEFAULT_WEEKS as GF_WEEKS, WALK_RUN_LADDER, _walk_run_label,
@@ -105,7 +106,8 @@ def connect():
         conn.commit()
     for table, col in (("athlete_profile", "safety_screen_status"), ("athlete_profile", "safety_screen_json"),
                        ("race_target", "verification_status"), ("race_target", "verification_json"),
-                       ("run_log", "external_id"), ("run_log", "feedback_sent_at")):
+                       ("run_log", "external_id"), ("run_log", "feedback_sent_at"),
+                       ("other_activity", "strength_json")):
         tcols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if tcols and col not in tcols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
@@ -1234,7 +1236,8 @@ def get_athlete_summary(athlete_id=None, email=None, chat_ref=None):
                                              "status='pending'", (athlete_id,)).fetchone()[0],
             "latest_intake": _latest_intake(conn, athlete_id),
             "recent_other_activities": [
-                {k: o[k] for k in ("start_at", "category", "sport_type", "name", "elapsed_min", "perceived_exertion")}
+                {**{k: o[k] for k in ("start_at", "category", "sport_type", "name", "elapsed_min", "perceived_exertion")},
+                 "focus": json.loads(o["strength_json"])["focus"] if o.get("strength_json") else None}
                 for o in _other_activities(conn, athlete_id, (today - timedelta(days=14)).isoformat())],
             "strava": _row(conn.execute("SELECT status, connected_at, last_sync_at, last_error FROM strava_connection "
                                         "WHERE athlete_id=?", (athlete_id,)).fetchone()),
@@ -1950,10 +1953,22 @@ def _strava_token(conn, row):
 
 
 def _strength_before(conn, athlete_id, run_start_iso):
+    """Leg-loading strength sessions in the 30 h before a run. Sessions with a
+    Hevy log count only if they trained legs (lower / full body); an upper-body
+    day doesn't tire the legs. Sessions without a log are included (unknown)."""
     t = datetime.fromisoformat(run_start_iso)
-    return [dict(r) for r in conn.execute(
-        "SELECT name, start_at, elapsed_min FROM other_activity WHERE athlete_id=? AND category='strength' "
-        "AND start_at >= ? AND start_at < ?", (athlete_id, (t - timedelta(hours=30)).isoformat(), t.isoformat()))]
+    out = []
+    for r in conn.execute("SELECT name, start_at, elapsed_min, strength_json FROM other_activity WHERE athlete_id=? "
+                          "AND category='strength' AND start_at >= ? AND start_at < ?",
+                          (athlete_id, (t - timedelta(hours=30)).isoformat(), t.isoformat())):
+        r = dict(r)
+        w = json.loads(r["strength_json"]) if r.get("strength_json") else None
+        if w and w["focus"] not in ("lower", "full"):
+            continue
+        r["focus"] = w["focus"] if w else None
+        r["legs"] = hevy.leg_summary(w) if w else None
+        out.append(r)
+    return out
 
 
 def strava_sync(athlete_id=None, backfill_days=28):
@@ -2021,20 +2036,25 @@ def strava_sync(athlete_id=None, backfill_days=28):
                     detail = strava.activity_detail(token, a["id"]) if strava.category(a) in ("strength", "mobility") \
                         else None
                     o = strava.other_summary(a, detail)
+                    workout = hevy.parse_description(o["description"])     # Hevy / Hevy Coach logs
+                    if workout and o["category"] != "strength":
+                        o["category"] = "strength"
                     oid = _id("act")
                     conn.execute("INSERT INTO other_activity (activity_id, athlete_id, external_id, data_source, start_at, "
                                  "category, sport_type, name, description, elapsed_min, moving_min, distance_km, avg_hr, "
-                                 "max_hr, perceived_exertion, feedback_sent_at, created_at) "
-                                 "VALUES (?,?,?,'strava',?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                 "max_hr, perceived_exertion, strength_json, feedback_sent_at, created_at) "
+                                 "VALUES (?,?,?,'strava',?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                  (oid, aid, ext, o["start_at"], o["category"], o["sport_type"], o["name"],
                                   o["description"], o["elapsed_min"], o["moving_min"], o["distance_km"], o["avg_hr"],
-                                  o["max_hr"], o["perceived_exertion"], "backfill" if backfill else None, _now()))
+                                  o["max_hr"], o["perceived_exertion"], json.dumps(workout) if workout else None,
+                                  "backfill" if backfill else None, _now()))
                     conn.commit()
                     history.record_other(hconn, aid, o, raw=json.dumps({"activity": a, "detail": detail}).encode())
                     hconn.commit()
                     res["new_other"].append({"activity_id": oid, "date": o["start_at"][:10], "category": o["category"],
                                              "sport_type": o["sport_type"], "name": o["name"],
-                                             "minutes": o["elapsed_min"], "backfill": backfill})
+                                             "minutes": o["elapsed_min"], "backfill": backfill,
+                                             "focus": workout["focus"] if workout else None})
             conn.execute("UPDATE strava_connection SET last_sync_at=?, last_activity_epoch=?, last_error=NULL "
                          "WHERE athlete_id=?", (_now(), newest, aid))
             conn.commit()
@@ -2097,19 +2117,28 @@ def get_pending_feedback(athlete_id):
         notes = list(comp.notes)
         if prog and prog["session_type"] in ("long", "quality", "time_trial"):
             for st in _strength_before(conn, athlete_id, r["recorded_at"]):
-                notes.append(f"strength session '{st['name']}' within 30 h before this {prog['session_type']} run -- "
-                             f"if it felt heavy, that's a likely reason; keep hard leg work away from the day before "
-                             f"key runs")
+                what = (f"leg work ({st['legs']})" if st.get("legs") else f"strength session '{st['name']}'")
+                notes.append(f"{what} within 30 h before this {prog['session_type']} run -- if it felt heavy, that's "
+                             f"a likely reason; keep hard leg work away from the day before key runs")
         runs.append({"run_log_id": r["run_log_id"], "date": r["recorded_at"][:10],
                      "distance_km": round(r["distance_km"] or 0, 2), "moving_min": round(r["moving_time_min"] or 0, 1),
                      "avg_hr": r["avg_hr"], "hr_drift_delta": r["hr_drift_delta"],
                      "planned": ({k: prog[k] for k in ("session_type", "session_label", "prescribed_distance_km",
                                                        "prescribed_duration_min")} if prog else None),
                      "notes": notes, "data_quality": r["parser_notes"]})
-    other = [dict(o) for o in conn.execute(
-        "SELECT activity_id, start_at, category, sport_type, name, description, elapsed_min, avg_hr, "
-        "perceived_exertion FROM other_activity WHERE athlete_id=? AND feedback_sent_at IS NULL ORDER BY start_at",
-        (athlete_id,))]
+    other = []
+    for o in conn.execute(
+            "SELECT activity_id, start_at, category, sport_type, name, description, elapsed_min, avg_hr, "
+            "perceived_exertion, strength_json FROM other_activity WHERE athlete_id=? AND feedback_sent_at IS NULL "
+            "ORDER BY start_at", (athlete_id,)):
+        o = dict(o)
+        w = json.loads(o.pop("strength_json")) if o.get("strength_json") else None
+        if w:
+            o.pop("description", None)          # replaced by the structured version
+            o["workout"] = {"focus": w["focus"], "total_sets": w["total_sets"], "volume_kg": w["volume_kg"],
+                            "exercises": [{"name": e["name"], "sets": len(e["sets"]), "top_set": e["top_set"]}
+                                          for e in w["exercises"]]}
+        other.append(o)
     return {"ok": True, "runs": runs, "other": other, "count": len(runs) + len(other)}
 
 
@@ -2134,13 +2163,15 @@ def log_other_activity(athlete_id, category, start_at, elapsed_min, name=None, d
     conn = connect()
     _get_athlete(conn, athlete_id)
     start = start_at if "T" in start_at else start_at + "T12:00:00+00:00"
+    workout = hevy.parse_description(description) if description else None
     oid = _id("act")
     conn.execute("INSERT INTO other_activity (activity_id, athlete_id, external_id, data_source, start_at, category, "
-                 "sport_type, name, description, elapsed_min, perceived_exertion, feedback_sent_at, created_at) "
-                 "VALUES (?,?,NULL,'athlete_reported',?,?,NULL,?,?,?,?,?,?)",
-                 (oid, athlete_id, start, category, name, description, elapsed_min, perceived_exertion, _now(), _now()))
+                 "sport_type, name, description, elapsed_min, perceived_exertion, strength_json, feedback_sent_at, "
+                 "created_at) VALUES (?,?,NULL,'athlete_reported',?,?,NULL,?,?,?,?,?,?,?)",
+                 (oid, athlete_id, start, category, name, description, elapsed_min, perceived_exertion,
+                  json.dumps(workout) if workout else None, _now(), _now()))
     conn.commit()
-    return {"ok": True, "activity_id": oid}
+    return {"ok": True, "activity_id": oid, "focus": workout["focus"] if workout else None}
 
 
 def _read_xlsx(path):

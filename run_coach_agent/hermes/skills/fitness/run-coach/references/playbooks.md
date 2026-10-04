@@ -281,10 +281,25 @@ automatically for athletes who connect Strava.
   never between 21:00 and 07:00.
 - Give feedback (playbook F), then `mark_feedback_sent`.
 
+**Hevy / Hevy Coach strength programs:**
+- Workouts logged in Hevy and posted to Strava (each athlete turns this
+  on in Hevy → Settings → Integrations → Strava) arrive with the full
+  log: every exercise, set, kg and rep.
+- Bob reads this (`workout` in `get_pending_feedback`: focus, sets,
+  volume, top set per exercise) and knows whether it was a **lower
+  body**, **upper body**, **full body** or **core** session.
+- In feedback, mention the session briefly with real numbers (e.g.
+  "17 sets, 5.1 t moved, upper body"). Don't critique the owner's
+  strength program; that's their Hevy Coach work.
+- Progress on lifts shows in `get_trends` (`strength_progress`) once
+  an exercise has been logged in 2+ sessions at least 2 weeks apart.
+
 **Good to know:**
 - **Strength the day before a key run.** If a strength session was
   within 30 hours before a long, quality or time-trial run, the run's
-  notes say so. Use it to explain a heavy-legged run, and suggest
+  notes say so. With a Hevy log, only leg or full-body days count,
+  and the note names the leg work (e.g. "Squat 3x5 @ 80 kg").
+  Upper-body days don't. Use it to explain a heavy-legged run, and suggest
   moving hard leg work away from the day before key runs.
 - **No Strava?** When an athlete tells you about a gym session or
   other workout, log it with `log_other_activity`, so it's still

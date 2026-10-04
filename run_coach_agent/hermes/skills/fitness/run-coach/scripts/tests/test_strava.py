@@ -78,7 +78,8 @@ class FakeStrava:
         return 200, self.details[aid], {}
 
 
-class StravaFlow(unittest.TestCase):
+class StravaCase:
+    """Shared setup (fake Strava, temp home); mixed into TestCase subclasses."""
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = os.path.join(self.tmp.name, "home")
@@ -119,6 +120,9 @@ class StravaFlow(unittest.TestCase):
         pasted = f"http://localhost/strava-connected?state={q['state'][0]}&code=goodcode&scope=read,activity:read_all"
         return self.call("strava_complete_connect", athlete_id=aid, redirect_url=pasted)
 
+
+
+class StravaFlow(StravaCase, unittest.TestCase):
     def test_full_strava_flow(self):
         with open(os.path.join(EXAMPLES, "intake_race.json")) as f:
             intake = self.call("ingest_intake_form", form_response_json=json.load(f))
