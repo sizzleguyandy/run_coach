@@ -140,7 +140,7 @@ CREATE TABLE run_log (
     run_log_id           TEXT PRIMARY KEY,
     athlete_id           TEXT NOT NULL REFERENCES athlete_profile(athlete_id),
     source_file          TEXT NOT NULL,
-    source_format        TEXT NOT NULL,          -- 'fit' | 'gpx'
+    source_format        TEXT NOT NULL,          -- 'fit' | 'gpx' | 'strava'
     recorded_at          TEXT NOT NULL,           -- start timestamp, ISO
     distance_km          REAL,
     elapsed_time_min     REAL,
@@ -156,6 +156,8 @@ CREATE TABLE run_log (
     hr_drift_delta       REAL,                    -- second_half_avg_hr - first_half_avg_hr
     matched_program_row_id TEXT REFERENCES program(program_row_id),
     parser_notes         TEXT,                    -- anything odd the parser flagged (short recording, no HR data, GPS gaps)
+    external_id          TEXT,                    -- 'strava:<id>' for runs pulled from Strava
+    feedback_sent_at     TEXT,                    -- when the coach commented on this run to the athlete
     athlete_notes        TEXT,                    -- free text the athlete or intake message included
     created_at            TEXT NOT NULL
 );
@@ -211,6 +213,51 @@ CREATE TABLE checkin_trigger (
     status                    TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'fired' | 'stale_cancelled'
     origin                    TEXT NOT NULL DEFAULT 'agent',    -- 'generator' (auto-created with a plan; cancelled when the plan is regenerated) | 'agent'
     created_at                TEXT NOT NULL
+);
+
+-- ============================================================
+-- STRAVA_CONNECTION — one row per athlete who connected Strava.
+-- Tokens are secrets: never show them in chat. Per Strava's API
+-- Agreement, data fetched with them is shown only to that athlete.
+-- ============================================================
+CREATE TABLE strava_connection (
+    athlete_id            TEXT PRIMARY KEY REFERENCES athlete_profile(athlete_id),
+    status                TEXT NOT NULL,          -- 'pending' | 'connected' | 'revoked' | 'disconnected'
+    pending_state         TEXT,                   -- OAuth state while the athlete is connecting
+    strava_athlete_id     TEXT,
+    access_token          TEXT,
+    refresh_token         TEXT,
+    expires_at            INTEGER,
+    scope                 TEXT,
+    connected_at          TEXT,
+    last_sync_at          TEXT,
+    last_activity_epoch   INTEGER,                -- start time of the newest activity already fetched
+    last_error            TEXT
+);
+
+-- ============================================================
+-- OTHER_ACTIVITY — workouts that aren't runs: strength, mobility,
+-- cross-training (from Strava, or logged from what the athlete says).
+-- They don't count as run sessions, but the coach plans around them.
+-- ============================================================
+CREATE TABLE other_activity (
+    activity_id           TEXT PRIMARY KEY,
+    athlete_id            TEXT NOT NULL REFERENCES athlete_profile(athlete_id),
+    external_id           TEXT UNIQUE,            -- 'strava:<id>', NULL for manual entries
+    data_source           TEXT NOT NULL,          -- 'strava' | 'athlete_reported'
+    start_at              TEXT NOT NULL,
+    category              TEXT NOT NULL,          -- 'strength' | 'mobility' | 'cross_training'
+    sport_type            TEXT,
+    name                  TEXT,
+    description           TEXT,
+    elapsed_min           REAL,
+    moving_min            REAL,
+    distance_km           REAL,
+    avg_hr                REAL,
+    max_hr                REAL,
+    perceived_exertion    REAL,
+    feedback_sent_at      TEXT,
+    created_at            TEXT NOT NULL
 );
 
 -- ============================================================

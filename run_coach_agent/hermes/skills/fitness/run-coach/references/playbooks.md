@@ -218,8 +218,16 @@ to build the plan until both are done.
    - Give the plan `summary` and this week's sessions from
      `get_athlete_summary` (`this_week` / `next_week`) as a short list
      with days and dates.
-   - Explain that after every run they can send the .fit/.gpx file
-     from their watch app, and that you'll check in at the end of each
+   - **Strava** (playbook S): if they use Strava (form answer
+     `uses_strava`, or ask), send them the connect link first. Once
+     connected, their last 4 weeks are imported. If their plan hasn't
+     started yet, rebuild it so it starts from their real running:
+     `generate_program` with the same goal and
+     `reason: "rebuilt from Strava history"`.
+   - Explain how runs reach you: automatically from Strava, or by
+     sending the .fit/.gpx file from their watch app. Strength and
+     other workouts on Strava come through too; otherwise they can
+     just tell you about them. You'll also check in at the end of each
      week.
    - Ask for anything still pending (e.g. an HR zone screenshot, or
      confirming an ambiguous race date).
@@ -238,6 +246,65 @@ If `generate_program` returns `ok: false`, tell the athlete (or, in
 A0, the owner) the `reason` plainly and offer the `suggestion`. For example, someone with
 too little running base for a race gets offered a general-fitness
 block first.
+
+### S. Strava
+
+Runs **and** other workouts (strength, yoga, cycling…) arrive
+automatically for athletes who connect Strava.
+
+**One-time setup (owner):**
+1. At strava.com/settings/api, create an API application and set
+   **Authorization Callback Domain** to `localhost`.
+2. Put `STRAVA_CLIENT_ID=` and `STRAVA_CLIENT_SECRET=` in this
+   profile's `.env`. Never paste the secret into chat.
+3. New Strava apps allow **1 connected athlete**. On the same settings
+   page, upgrade to 10. Beyond that needs Strava's Developer Program
+   form (7–10 business days).
+
+**Connecting an athlete** (in their own chat):
+1. `strava_connect_link {"athlete_id"}`. Send them
+   `message_for_athlete` exactly.
+2. They authorise. Their browser then shows an error page; that's
+   expected. They copy the address (it starts `http://localhost`) and
+   send it to you.
+3. `strava_complete_connect {"athlete_id", "redirect_url": "<what they sent>"}`.
+   It imports the last 4 weeks as history (no feedback owed, except
+   anything from the last 24 hours).
+4. On errors (wrong or old link, permission box unticked, they pressed
+   Cancel), relay the error and send a fresh link.
+
+**After that it's automatic:**
+- Their hourly job (`install_checkin_gate`) syncs Strava. Each new run
+  is logged, matched to the plan and compared, exactly like a file.
+- Strength and other workouts go to their training log.
+- The job wakes you only for new activities or due check-ins, and
+  never between 21:00 and 07:00.
+- Give feedback (playbook F), then `mark_feedback_sent`.
+
+**Good to know:**
+- **Strength the day before a key run.** If a strength session was
+  within 30 hours before a long, quality or time-trial run, the run's
+  notes say so. Use it to explain a heavy-legged run, and suggest
+  moving hard leg work away from the day before key runs.
+- **No Strava?** When an athlete tells you about a gym session or
+  other workout, log it with `log_other_activity`, so it's still
+  planned around.
+- **Duplicates are recognised.** The same run from Strava and a file
+  is logged once.
+- **`strava_error` with "revoked"** means they disconnected you on
+  Strava. Ask whether they want to reconnect.
+- **`strava_disconnect`** if they ask you to stop. Activities already
+  imported stay in their history.
+
+**Privacy (Strava's API Agreement), non-negotiable:**
+- An athlete's Strava data may be shown **only to that athlete**.
+- Never tell the owner or anyone else about a Strava-connected
+  athlete's runs, paces, heart rate, workouts or trends.
+- Owner-facing views withhold it automatically: `get_squad_overview`,
+  and `get_trends` / `get_run_history` with `"audience": "owner"`.
+- In the owner's chat, always pass `"audience": "owner"`.
+- The owner can still see their plan, form answers and what they said
+  in check-ins.
 
 ### B. The athlete sends a run file (.fit / .gpx)
 
@@ -335,9 +402,19 @@ everything downstream.
 
 ### F. Check-in cron run
 
-Each athlete has a job, `run-coach checkins <athlete_id>`. Its gate
-script only wakes you when something is due, and the due `trigger_id`s
-arrive in the run's context.
+Each athlete has a job, `run-coach checkins <athlete_id>`, which runs
+hourly. Its gate script syncs their Strava, then wakes you only when
+there's something to say, and never 21:00–07:00. The run's context
+has:
+- `new_activities`: runs (with plan comparison notes) and other
+  workouts. Give short feedback: real numbers first, 2–3 lines per
+  run, grouping several. Acknowledge strength and cross-training
+  briefly, and plan around them. Then call
+  `mark_feedback_sent {"athlete_id", "run_log_ids": [...], "activity_ids": [...]}`
+  for everything you covered.
+- `due_checkins`: handle them as below.
+- `strava_error`: if it says revoked, ask whether they want to
+  reconnect.
 
 1. For each due check-in: `check_trigger_staleness {"trigger_id": ...}`
    **first**.

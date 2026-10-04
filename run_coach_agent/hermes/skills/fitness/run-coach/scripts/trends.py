@@ -241,7 +241,20 @@ def signal_history(events):
 
 # ---- entry point -------------------------------------------------------
 
-def build_trends(runs, sessions, signal_events, today, goal_type="race", ladder_progress=None):
+def other_training(other, today, weeks=4):
+    """Strength / mobility / cross-training over the last `weeks` weeks."""
+    cutoff = _week_start(today) - timedelta(weeks=weeks)
+    recent = [o for o in other if _d(o["start_at"]) >= cutoff]
+    by_cat = {}
+    for o in recent:
+        c = by_cat.setdefault(o["category"], {"sessions": 0, "minutes": 0.0})
+        c["sessions"] += 1
+        c["minutes"] += o.get("elapsed_min") or 0
+    return {"weeks": weeks, "by_category": {k: {"sessions": v["sessions"], "minutes": round(v["minutes"])}
+                                            for k, v in by_cat.items()}}
+
+
+def build_trends(runs, sessions, signal_events, today, goal_type="race", ladder_progress=None, other=None):
     """runs: run_log rows (+ '_session_type', '_session_label', '_splits' for matched runs)
     sessions: non-superseded program rows. Returns the full trend report."""
     for r in runs:
@@ -279,6 +292,14 @@ def build_trends(runs, sessions, signal_events, today, goal_type="race", ladder_
               "volume_week_on_week": _volume_trend(weeks, unit, 1),
               "signals": signal_history(signal_events)}
     feedback = []
+    if other:
+        ot = other_training(other, today)
+        report["other_training_4_weeks"] = ot
+        st = ot["by_category"].get("strength")
+        if st:
+            feedback.append({"topic": "strength", "evidence": f"{st['sessions']} sessions",
+                             "text": f"Strength: {st['sessions']} session(s), {st['minutes']} min in the last 4 weeks "
+                                     f"(about {st['sessions'] / 4:.1f} a week)."})
 
     c4 = report["consistency_last_4_weeks"]
     if c4:

@@ -221,7 +221,7 @@ class HermesIntegration(ToolTestCase):
         self.assertEqual(gate["cronjob_call"]["skills"], ["run-coach"])
 
         def run_gate(today):
-            env = {**os.environ, "COACH_TODAY": today}
+            env = {**os.environ, "COACH_TODAY": today, "COACH_NOW_HOUR": "10"}
             out = subprocess.run([sys.executable, gate["gate_script"]], env=env, capture_output=True,
                                  text=True, check=True).stdout.strip().splitlines()[-1]
             return json.loads(out)

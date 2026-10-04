@@ -164,7 +164,7 @@
       "type": "function",
       "function": {
         "name": "install_checkin_gate",
-        "description": "Write this athlete's cron gate script into $HERMES_HOME/scripts and return the exact cronjob call to create their daily check-in job. Call it FROM THE ATHLETE'S CHAT (delivery defaults to origin), then create the job with cronjob using cronjob_call exactly.",
+        "description": "Write this athlete's hourly gate script into $HERMES_HOME/scripts (syncs Strava, wakes the agent only for new activities or due check-ins, never 21:00-07:00) and return the exact cronjob call. Call FROM THE ATHLETE'S CHAT; if the job already exists, edit it to the returned schedule/prompt instead of creating another.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -545,6 +545,14 @@
             "limit": {
               "type": "integer",
               "description": "Default 200."
+            },
+            "audience": {
+              "type": "string",
+              "enum": [
+                "athlete",
+                "owner"
+              ],
+              "description": "'owner' when the owner asked: Strava-sourced data is withheld (Strava API Agreement). Default 'athlete'."
             }
           },
           "required": []
@@ -658,6 +666,14 @@
             "include_weekly_table": {
               "type": "boolean",
               "description": "Default true; false for a shorter response."
+            },
+            "audience": {
+              "type": "string",
+              "enum": [
+                "athlete",
+                "owner"
+              ],
+              "description": "'owner' when the owner asked: Strava-sourced data is withheld (Strava API Agreement). Default 'athlete'."
             }
           },
           "required": []
@@ -668,11 +684,197 @@
       "type": "function",
       "function": {
         "name": "get_squad_overview",
-        "description": "Owner only. One row per athlete with an active goal: data tier, 4-week consistency, volume and aerobic-fitness direction, active warning signs, days since last run, plus a needs_attention list. Never show this to an athlete.",
+        "description": "Owner only. One row per athlete with an active goal: data tier, 4-week consistency, volume and aerobic-fitness direction, active warning signs, days since last run, plus a needs_attention list. Never show this to an athlete. Strava-connected athletes show only plan/onboarding info: their activity data is private to them.",
         "parameters": {
           "type": "object",
           "properties": {},
           "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "strava_connect_link",
+        "description": "Personal Strava authorise link + exact instructions for the athlete (send in their own chat). Requires STRAVA_CLIENT_ID/SECRET in the profile's .env.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "athlete_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "strava_complete_connect",
+        "description": "Finish connecting with the localhost address the athlete pasted back (or the code). Stores tokens and imports the last 4 weeks (history, no feedback owed except the last 24 h).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "redirect_url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "athlete_id",
+            "redirect_url"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "strava_sync",
+        "description": "Pull new Strava activities for one athlete (or all connected): runs are logged like files, matched to the plan and compared; strength/mobility/cross-training go to the training log. The hourly gate runs this; call it yourself only when asked.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "backfill_days": {
+              "type": "integer"
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "strava_status",
+        "description": "Strava connection state per athlete (status, last sync, last error).",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            }
+          },
+          "required": []
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "strava_disconnect",
+        "description": "Revoke the coach's Strava access for this athlete (on their request). Imported history stays.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "athlete_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_pending_feedback",
+        "description": "Strava runs and workouts the coach hasn't commented on yet, runs with plan comparison notes (incl. strength-before-key-run warnings). After messaging the athlete, call mark_feedback_sent.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "athlete_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "mark_feedback_sent",
+        "description": "Mark Strava runs / workouts as commented on.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "run_log_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "activity_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "athlete_id"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "log_other_activity",
+        "description": "Record a non-run workout the athlete told you about (no Strava): strength, mobility or cross_training.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "athlete_id": {
+              "type": "string"
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "strength",
+                "mobility",
+                "cross_training"
+              ]
+            },
+            "start_at": {
+              "type": "string",
+              "description": "ISO date or datetime"
+            },
+            "elapsed_min": {
+              "type": "number"
+            },
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "perceived_exertion": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "athlete_id",
+            "category",
+            "start_at",
+            "elapsed_min"
+          ]
         }
       }
     },

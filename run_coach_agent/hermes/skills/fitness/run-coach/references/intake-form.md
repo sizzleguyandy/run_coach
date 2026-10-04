@@ -73,6 +73,7 @@ their generator uses; the km figures are just extra context.
 | Longest run in the last 4 weeks (km) | number | used to seed the program generator's baseline, not stored directly | This is the single most load-bearing number in the whole intake — it's what exposes an endurance/durability gap before the plan gets built around a false assumption |
 | Total running km in the last 4 weeks (roughly) | number | same | Used to compute baseline weekly volume for the 10%-rule ramp |
 | Best recent timed effort — distance AND time | two fields (distance, time) | seeds pace estimates | Ask for **both**, and ask **when** it was run. A 5K time from 8 months ago is a different input than one from last week. |
+| Do you record your runs on Strava? | Yes / No | `uses_strava` | If yes, the coach sends a Strava connect link in the welcome, so runs and strength workouts arrive automatically. |
 | Do you use a running watch/app that shows heart rate zones? | yes/no | — | If yes, the bot asks for a screenshot of the zones in Telegram at the welcome (it reads it itself; don't ask athletes to type zone numbers, and don't use a Forms file upload — those land in Drive where the bot can't see them). |
 
 ## Section 4 — Logistics

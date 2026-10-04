@@ -219,6 +219,21 @@ These are targeted second opinions, run once per athlete, not a swarm
 of agents on every message. The plan's numbers are already computed by
 code, so extra agents couldn't make those more accurate.
 
+## 1c. Strava
+
+- **Strava brings in runs automatically,** and also strength, mobility
+  and cross-training workouts. The plan doesn't prescribe those
+  workouts, but it takes them into account:
+  - A strength session within 30 hours before a long, quality or
+    time-trial run is flagged on that run.
+  - Weekly reviews and trends report them.
+- **Real running beats form answers.** If there are 3+ logged runs in
+  the 4 weeks before a race plan starts, the plan starts from them
+  rather than the form.
+- **Privacy.** Strava data is shown only to the athlete it belongs to
+  (Strava's API Agreement, Nov 2024). Owner views withhold it. The
+  coach uses it only to coach that athlete, never to train any model.
+
 ## 2a. Weekly readjustment
 
 A plan built from an intake form is a first guess. After every week the

@@ -35,6 +35,7 @@ import analysis
 import history
 import plan_review
 import safety_checks
+import strava
 from fit_parser import parse_fit
 from general_fitness import (DEFAULT_WEEKS as GF_WEEKS, WALK_RUN_LADDER, _walk_run_label,
                              generate_general_fitness_plan)
@@ -103,7 +104,8 @@ def connect():
         conn.execute("ALTER TABLE athlete_profile ADD COLUMN welcomed_at TEXT")
         conn.commit()
     for table, col in (("athlete_profile", "safety_screen_status"), ("athlete_profile", "safety_screen_json"),
-                       ("race_target", "verification_status"), ("race_target", "verification_json")):
+                       ("race_target", "verification_status"), ("race_target", "verification_json"),
+                       ("run_log", "external_id"), ("run_log", "feedback_sent_at")):
         tcols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if tcols and col not in tcols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
@@ -112,12 +114,13 @@ def connect():
     if rcols and "constraints_json" not in rcols:
         conn.execute("ALTER TABLE program_revision ADD COLUMN constraints_json TEXT")
         conn.commit()
-    if not conn.execute("SELECT name FROM sqlite_master WHERE name='plan_review'").fetchone():
-        with open(os.path.join(KIT_DIR, "schema.sql")) as f:
-            ddl = f.read()
-        start = ddl.index("CREATE TABLE plan_review")
-        conn.executescript(ddl[start:ddl.index(");", start) + 2])
-        conn.commit()
+    for table in ("plan_review", "strava_connection", "other_activity"):
+        if not conn.execute("SELECT name FROM sqlite_master WHERE name=?", (table,)).fetchone():
+            with open(os.path.join(KIT_DIR, "schema.sql")) as f:
+                ddl = f.read()
+            start = ddl.index(f"CREATE TABLE {table}")
+            conn.executescript(ddl[start:ddl.index(");", start) + 2])
+            conn.commit()
     if not conn.execute("SELECT name FROM sqlite_master WHERE name='signal_event'").fetchone():
         # Databases created before trends existed: add the history table.
         with open(os.path.join(KIT_DIR, "schema.sql")) as f:
@@ -189,6 +192,7 @@ def _latest_intake(conn, athlete_id):
 INTAKE_FIELDS = [
     ("goal",                   ("what are you training for",)),
     ("telegram_user_id",       ("telegram",)),
+    ("uses_strava",            ("strava",)),
     ("race_name",              ("race name",)),
     ("race_date",              ("race date",)),
     ("race_distance",          ("race distance",)),
@@ -668,6 +672,14 @@ def generate_program(athlete_id, race_id, reason, constraints=None, general_fitn
             start_step=level.get("start_step"), start_weekly_min=level.get("start_weekly_min"))
         plan["ok"], plan["time_trial_row_indexes"] = True, []
     else:
+        real = _recent_running(conn, athlete_id, start)
+        real_note = None
+        if overrides.get("baseline_weekly_km") is None and real:
+            overrides = {"baseline_weekly_km": real["weekly_km"], "longest_recent_km": real["longest_km"]}
+            real_note = (f" Starting point from {real['runs']} logged runs in the 4 weeks before the plan: "
+                         f"{real['weekly_km']:g} km/week, longest {real['longest_km']:g} km (form said "
+                         f"{_num(intake.get('total_km_4wk') or 0) / 4:g} km/week, longest "
+                         f"{_num(intake.get('longest_run_km') or 0):g} km).")
         override = overrides.get("baseline_weekly_km") is not None
         if not override and (intake.get("total_km_4wk") is None or intake.get("longest_run_km") is None):
             raise ToolError("race plan needs the athlete's longest run and total km over the last "
@@ -689,6 +701,8 @@ def generate_program(athlete_id, race_id, reason, constraints=None, general_fitn
                       "zone4_high": athlete.get("hr_zone4_high")})
         if not plan["ok"]:
             return plan
+        if real_note:
+            plan["summary"] += real_note
         if goal.get("course_url") and goal.get("elevation_gain_m") is None:
             plan["summary"] += (" WARNING: course elevation not recorded yet -- generated as a flat "
                                 "course; call record_course_info and regenerate if it's hilly.")
@@ -817,8 +831,7 @@ def parse_run_file(file_path, athlete_id, file_format="auto", athlete_notes=None
         hconn.commit()
         return {"ok": False, "parser_notes": summary.get("parser_notes"),
                 "error": "file has no usable timestamps/records; ask the athlete for a different export"}
-    dup = conn.execute("SELECT run_log_id FROM run_log WHERE athlete_id=? AND recorded_at=?",
-                       (athlete_id, summary["recorded_at"])).fetchone()
+    dup = _find_duplicate_run(conn, athlete_id, summary["recorded_at"], summary.get("distance_km"))
     if dup:
         # Make sure it's in history too (e.g. logged before history existed).
         hid, _ = history.record_run(hconn, athlete, file_path, fmt, parsed, dup["run_log_id"], athlete_notes)
@@ -826,25 +839,48 @@ def parse_run_file(file_path, athlete_id, file_format="auto", athlete_notes=None
         hconn.commit()
         return {"ok": True, "duplicate": True, "run_log_id": dup["run_log_id"], "history_id": hid,
                 "summary": summary, "note": "this run was already logged; not inserted again"}
-    rid = _id("run")
-    # History first: if anything after this fails, the run is still kept forever.
-    hid, _ = history.record_run(hconn, athlete, file_path, fmt, parsed, rid, athlete_notes)
+    rid, hid = _log_run(conn, hconn, athlete, parsed, fmt, name, athlete_notes, path=file_path)
     history.record_attempt(hconn, athlete_id, name, sha, "recorded", hid)
+    hconn.commit()
+    return {"ok": True, "duplicate": False, "run_log_id": rid, "history_id": hid, "summary": summary,
+            "data_quality_warning": summary.get("parser_notes")}
+
+
+def _find_duplicate_run(conn, athlete_id, recorded_at, distance_km):
+    """Same run from two sources (a Strava sync and an uploaded file) starts within
+    a couple of minutes and has about the same distance."""
+    t = datetime.fromisoformat(recorded_at)
+    for r in conn.execute("SELECT run_log_id, recorded_at, distance_km FROM run_log WHERE athlete_id=? AND "
+                          "substr(recorded_at,1,10) BETWEEN ? AND ?",
+                          (athlete_id, (t - timedelta(days=1)).date().isoformat(),
+                           (t + timedelta(days=1)).date().isoformat())):
+        dt = abs((datetime.fromisoformat(r["recorded_at"]) - t).total_seconds())
+        if dt <= 180 and (distance_km is None or r["distance_km"] is None or
+                          abs(r["distance_km"] - distance_km) <= max(0.3, 0.05 * distance_km)):
+            return r
+    return None
+
+
+def _log_run(conn, hconn, athlete, parsed, fmt, source_name, athlete_notes, path=None, raw=None, external_id=None):
+    """Write one run to history.db (first -- it's the permanent record) and coach.db."""
+    summary = {k: v for k, v in parsed.items() if k != "points"}
+    rid = _id("run")
+    hid, _ = history.record_run(hconn, athlete, path, fmt, parsed, rid, athlete_notes, raw=raw,
+                                source_name=source_name)
     hconn.commit()
     conn.execute(
         "INSERT INTO run_log (run_log_id, athlete_id, source_file, source_format, recorded_at, distance_km, "
         "elapsed_time_min, moving_time_min, avg_hr, max_hr, elevation_gain_m, elevation_loss_m, "
         "avg_pace_sec_per_km, splits_json, first_half_avg_hr, second_half_avg_hr, hr_drift_delta, "
-        "parser_notes, athlete_notes, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (rid, athlete_id, os.path.basename(file_path), fmt, summary["recorded_at"], summary.get("distance_km"),
+        "parser_notes, athlete_notes, created_at, external_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (rid, athlete["athlete_id"], source_name, fmt, summary["recorded_at"], summary.get("distance_km"),
          summary.get("elapsed_time_min"), summary.get("moving_time_min"), summary.get("avg_hr"),
          summary.get("max_hr"), summary.get("elevation_gain_m"), summary.get("elevation_loss_m"),
          summary.get("avg_pace_sec_per_km"), json.dumps(summary.get("splits"), default=str),
          summary.get("first_half_avg_hr"), summary.get("second_half_avg_hr"), summary.get("hr_drift_delta"),
-         summary.get("parser_notes"), athlete_notes, _now()))
+         summary.get("parser_notes"), athlete_notes, _now(), external_id))
     conn.commit()
-    return {"ok": True, "duplicate": False, "run_log_id": rid, "history_id": hid, "summary": summary,
-            "data_quality_warning": summary.get("parser_notes")}
+    return rid, hid
 
 
 def match_run_to_program(athlete_id, run_log_id=None, run_recorded_at=None, run_distance_km=None):
@@ -1197,6 +1233,11 @@ def get_athlete_summary(athlete_id=None, email=None, chat_ref=None):
             "pending_checkins": conn.execute("SELECT count(*) FROM checkin_trigger WHERE athlete_id=? AND "
                                              "status='pending'", (athlete_id,)).fetchone()[0],
             "latest_intake": _latest_intake(conn, athlete_id),
+            "recent_other_activities": [
+                {k: o[k] for k in ("start_at", "category", "sport_type", "name", "elapsed_min", "perceived_exertion")}
+                for o in _other_activities(conn, athlete_id, (today - timedelta(days=14)).isoformat())],
+            "strava": _row(conn.execute("SELECT status, connected_at, last_sync_at, last_error FROM strava_connection "
+                                        "WHERE athlete_id=?", (athlete_id,)).fetchone()),
             "onboarding_status": _onboarding_status(conn, athlete)}
 
 
@@ -1247,19 +1288,36 @@ def link_chat(chat_ref, athlete_id=None, email=None):
 
 
 GATE_TEMPLATE = '''#!/usr/bin/env python3
-# Generated by run-coach install_checkin_gate. Cron pre-run gate: wakes the
-# agent only when {athlete_id} has a check-in due. Safe to delete (then remove
-# the matching cron job).
+# Generated by run-coach install_checkin_gate. Cron pre-run gate for {athlete_id}:
+# syncs their Strava (if connected), then wakes the agent only when there's
+# something to say -- new activities to comment on, or a check-in due -- and
+# never during quiet hours. Safe to delete (then remove the matching cron job).
 import json, os, sys
+from datetime import datetime
 sys.path.insert(0, {scripts_dir!r})
 os.environ.setdefault("COACH_DB", {db!r})
 import coach_tools
-due = coach_tools.get_due_checkins(athlete_id={athlete_id!r})["due"]
-if not due:
-    print(json.dumps({{"wakeAgent": False}}))
-else:
-    print(json.dumps({{"wakeAgent": True, "context": {{"athlete_id": {athlete_id!r},
-        "due_checkins": [{{"trigger_id": t["trigger_id"], "prompt": t["prompt_template"]}} for t in due]}}}}))
+QUIET_FROM, QUIET_UNTIL = 21, 7          # local time: no messages 21:00-07:00
+aid = {athlete_id!r}
+ctx = {{"athlete_id": aid}}
+st = coach_tools.call_tool("strava_status", {{"athlete_id": aid}})
+if any(c["status"] == "connected" for c in st.get("connections", [])):
+    sync = coach_tools.call_tool("strava_sync", {{"athlete_id": aid}})
+    err = ([a.get("error") for a in sync.get("athletes", []) if a.get("error")] or [sync.get("error")])[0]
+    if err:
+        ctx["strava_error"] = err
+hour = int(os.environ.get("COACH_NOW_HOUR", datetime.now().hour))
+if QUIET_UNTIL <= hour < QUIET_FROM:
+    due = coach_tools.call_tool("get_due_checkins", {{"athlete_id": aid}}).get("due", [])
+    pending = coach_tools.call_tool("get_pending_feedback", {{"athlete_id": aid}})
+    if due:
+        ctx["due_checkins"] = [{{"trigger_id": t["trigger_id"], "prompt": t["prompt_template"]}} for t in due]
+    if pending.get("count"):
+        ctx["new_activities"] = {{"runs": pending["runs"], "other": pending["other"]}}
+    if due or pending.get("count") or ("strava_error" in ctx and "revoked" in ctx["strava_error"]):
+        print(json.dumps({{"wakeAgent": True, "context": ctx}}, default=str))
+        sys.exit(0)
+print(json.dumps({{"wakeAgent": False}}))
 '''
 
 
@@ -1276,18 +1334,36 @@ def install_checkin_gate(athlete_id):
     with open(os.path.join(scripts, name), "w") as f:
         f.write(GATE_TEMPLATE.format(athlete_id=athlete_id, scripts_dir=KIT_DIR, db=db_path()))
     workdir = os.path.join(home, "run_coach")
-    prompt = (f"Run-coach check-ins for athlete {athlete_id} ({athlete['name']}). The pre-run context lists "
-              f"the due check-ins. Load the run-coach skill and follow playbook F: for EACH trigger_id call "
-              f"check_trigger_staleness first, then get_athlete_summary, then act. Your final response is sent "
-              f"straight to the athlete: write only the message to them, friendly and short. If every due "
-              f"check-in turned out stale or needs no message, reply with only [SILENT].")
+    prompt = (f"Run-coach update for athlete {athlete_id} ({athlete['name']}). Load the run-coach skill and "
+              f"follow playbook F with the pre-run context. new_activities: give short feedback on each new run "
+              f"(real numbers and the plan comparison notes first, 2-3 lines each; group several), acknowledge "
+              f"strength / cross-training briefly and plan around it, then mark_feedback_sent for every item you "
+              f"covered. due_checkins: for EACH trigger_id call check_trigger_staleness first, then act. "
+              f"strava_error saying revoked: ask them to reconnect (strava_connect_link). Your final response is "
+              f"sent straight to the athlete: one friendly, short message with only what's for them. If nothing "
+              f"needs saying, reply with only [SILENT].")
     return {"ok": True, "gate_script": os.path.join(scripts, name),
             "cronjob_call": {"action": "create", "name": f"run-coach checkins {athlete_id}",
-                             "schedule": "0 7 * * *", "script": name, "skills": ["run-coach"],
+                             "schedule": "0 * * * *", "script": name, "skills": ["run-coach"],
                              "workdir": workdir, "attach_to_session": True, "prompt": prompt},
             "instruction": "Create the job with your cronjob tool using cronjob_call exactly, from this "
-                           "athlete's chat (delivery defaults to origin). The schedule is a cron expression "
-                           "(minute hour * * *); change the hour to suit the athlete."}
+                           "athlete's chat (delivery defaults to origin). It runs hourly: the gate script syncs "
+                           "Strava and only wakes you for new activities or due check-ins, never 21:00-07:00. "
+                           "If this athlete already has the job, the script was just updated in place; edit the "
+                           "existing job's schedule to '0 * * * *' and its prompt to cronjob_call.prompt instead "
+                           "of creating a second job."}
+
+
+def _recent_running(conn, athlete_id, before):
+    """Real running in the 4 weeks before `before` (e.g. imported from Strava),
+    if there's enough of it (3+ runs) to plan from instead of the form answers."""
+    rows = conn.execute("SELECT distance_km FROM run_log WHERE athlete_id=? AND substr(recorded_at,1,10) >= ? AND "
+                        "substr(recorded_at,1,10) < ?", (athlete_id, (before - timedelta(days=28)).isoformat(),
+                                                         before.isoformat())).fetchall()
+    kms = [r[0] or 0 for r in rows]
+    if len(kms) < 3:
+        return None
+    return {"runs": len(kms), "weekly_km": round(sum(kms) / 4, 1), "longest_km": round(max(kms), 1)}
 
 
 def _week_numbers(conn, athlete_id, ws, gf):
@@ -1405,7 +1481,15 @@ def review_week(athlete_id=None, chat_ref=None, week_start=None, feedback=None, 
         if gen_result.get("ok"):
             applied = gen_result["revision_id"]
     after = next_week_total()
+    other = _other_activities(conn, athlete_id, ws.isoformat())
+    other = [o for o in other if o["start_at"][:10] <= (ws + timedelta(days=6)).isoformat()]
+    other_week = {}
+    for o in other:
+        c = other_week.setdefault(o["category"], {"sessions": 0, "minutes": 0.0})
+        c["sessions"] += 1
+        c["minutes"] = round(c["minutes"] + (o["elapsed_min"] or 0))
     detail = {"week": week, "previous_week": prev, "reasons": d["reasons"], "feedback": feedback,
+              "other_training": other_week,
               "active_signals": active, "next_week_before": before, "next_week_after": after,
               "rebuild_refused": None if not gen_result or gen_result.get("ok") else gen_result}
     conn.execute("INSERT OR REPLACE INTO plan_review VALUES (?,?,?,?,?,?,?,?)",
@@ -1415,6 +1499,7 @@ def review_week(athlete_id=None, chat_ref=None, week_start=None, feedback=None, 
     unit = "min" if gf else "km"
     return {"ok": True, "week_start": ws.isoformat(), "decision": d["decision"], "reasons": d["reasons"],
             "completion": d["completion"], "planned": week["planned"], "actual": week["actual"], "unit": unit,
+            "other_training": other_week,
             "next_week_start": next_start.isoformat(),
             "next_week_total_before": before, "next_week_total_after": after,
             "plan_rebuilt": bool(applied), "revision_id": applied, "goal_at_risk": bool(d.get("goal_at_risk")),
@@ -1463,10 +1548,28 @@ def _trend_inputs(conn, athlete_id):
     return runs, sessions, events
 
 
-def get_trends(athlete_id=None, chat_ref=None, include_weekly_table=True):
+def _other_activities(conn, athlete_id, since=None):
+    q = "SELECT * FROM other_activity WHERE athlete_id=?" + (" AND start_at >= ?" if since else "") + " ORDER BY start_at"
+    return [dict(o) for o in conn.execute(q, (athlete_id, since) if since else (athlete_id,))]
+
+
+STRAVA_PRIVATE_NOTE = ("This athlete's activity data comes from Strava. Strava's API Agreement only allows it to "
+                       "be shown to the athlete themselves, so it isn't shown here. Their plan, form answers and "
+                       "check-in replies are still available.")
+
+
+def _strava_private(conn, athlete_id):
+    return bool(conn.execute("SELECT 1 FROM run_log WHERE athlete_id=? AND source_format='strava' UNION "
+                             "SELECT 1 FROM other_activity WHERE athlete_id=? AND data_source='strava'",
+                             (athlete_id, athlete_id)).fetchone())
+
+
+def get_trends(athlete_id=None, chat_ref=None, include_weekly_table=True, audience="athlete"):
     """Progress trends from the athlete's whole history. Needs 14 days and 4
     logged runs before anything is reported; more metrics unlock at 4 and 8
-    weeks. Relay `feedback` (already evidence-backed); never compute your own."""
+    weeks. Relay `feedback` (already evidence-backed); never compute your own.
+    audience='owner' when the owner (not the athlete) asked: Strava-sourced
+    data is then withheld, per Strava's API Agreement."""
     conn = connect()
     if not athlete_id:
         r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE chat_ref=?", (chat_ref or "",)).fetchone()
@@ -1474,10 +1577,12 @@ def get_trends(athlete_id=None, chat_ref=None, include_weekly_table=True):
             raise ToolError("pass athlete_id, or a linked chat_ref")
         athlete_id = r["athlete_id"]
     _get_athlete(conn, athlete_id)
+    if audience == "owner" and _strava_private(conn, athlete_id):
+        return {"ok": True, "athlete_id": athlete_id, "private": True, "note": STRAVA_PRIVATE_NOTE}
     goal = _active_goal(conn, athlete_id) or {}
     runs, sessions, events = _trend_inputs(conn, athlete_id)
     report = build_trends(runs, sessions, events, _today(), goal.get("goal_type", "race"),
-                          ladder_progress=_ladder_progress(sessions))
+                          ladder_progress=_ladder_progress(sessions), other=_other_activities(conn, athlete_id))
     if not include_weekly_table:
         report.pop("weekly", None)
     return {"ok": True, "athlete_id": athlete_id, **report}
@@ -1493,6 +1598,12 @@ def get_squad_overview():
         goal = _active_goal(conn, a["athlete_id"])
         if not goal:
             continue
+        if _strava_private(conn, a["athlete_id"]):
+            rows.append({"athlete_id": a["athlete_id"], "name": a["name"], "goal": goal["race_name"],
+                         "goal_type": goal["goal_type"], "activity_data": "private (Strava)",
+                         "onboarding_status": _onboarding_status(conn, _get_athlete(conn, a["athlete_id"])),
+                         "active_signals": []})
+            continue
         runs, sessions, events = _trend_inputs(conn, a["athlete_id"])
         t = build_trends(runs, sessions, events, today, goal["goal_type"])
         last = max((r["recorded_at"][:10] for r in runs), default=None)
@@ -1507,14 +1618,15 @@ def get_squad_overview():
                      "aerobic_direction": (t.get("aerobic_fitness") or {}).get("direction"),
                      "last_run": last, "days_since_last_run": (today - date.fromisoformat(last)).days if last else None,
                      "active_signals": active})
-    needs_attention = [r["name"] for r in rows if r["active_signals"] or (r["days_since_last_run"] or 0) >= 7
-                       or (r["consistency_4wk_pct"] is not None and r["consistency_4wk_pct"] < 60)]
+    needs_attention = [r["name"] for r in rows if r["active_signals"] or (r.get("days_since_last_run") or 0) >= 7
+                       or (r.get("consistency_4wk_pct") is not None and r["consistency_4wk_pct"] < 60)]
     return {"ok": True, "today": today.isoformat(), "athletes": rows, "needs_attention": needs_attention}
 
 
-def get_run_history(athlete_id=None, chat_ref=None, start_date=None, end_date=None, limit=200):
+def get_run_history(athlete_id=None, chat_ref=None, start_date=None, end_date=None, limit=200, audience="athlete"):
     """Every recorded run for an athlete from the permanent history.db, newest
-    first, with what each was matched to. Includes runs from old/replaced plans."""
+    first, with what each was matched to. Includes runs from old/replaced plans.
+    audience='owner' withholds Strava-sourced runs (Strava's API Agreement)."""
     conn = connect()
     if not athlete_id:
         r = conn.execute("SELECT athlete_id FROM athlete_profile WHERE chat_ref=?", (chat_ref or "",)).fetchone()
@@ -1522,6 +1634,8 @@ def get_run_history(athlete_id=None, chat_ref=None, start_date=None, end_date=No
             raise ToolError("pass athlete_id, or a linked chat_ref")
         athlete_id = r["athlete_id"]
     hconn = _hconnect()
+    if audience == "owner" and _strava_private(conn, athlete_id):
+        return {"ok": True, "athlete_id": athlete_id, "private": True, "note": STRAVA_PRIVATE_NOTE}
     q = ("SELECT history_id, recorded_at, logged_at, source_file_name, source_format, distance_km, "
          "elapsed_time_min, moving_time_min, avg_hr, max_hr, elevation_gain_m, avg_pace_sec_per_km, "
          "hr_drift_delta, sample_count, parser_notes FROM runs WHERE athlete_id=?")
@@ -1758,6 +1872,277 @@ def confirm_race_info(race_id, note, race_date=None, distance_km=None, elevation
                                                          (race_id,)).fetchone())}
 
 
+# ---- Strava -------------------------------------------------------
+
+def _strava_creds():
+    try:
+        return strava.app_credentials(hermes_home() or os.path.expanduser("~/.hermes"))
+    except strava.StravaError as e:
+        raise ToolError(str(e))
+
+
+def strava_connect_link(athlete_id):
+    """A personal Strava authorise link for this athlete, plus the exact
+    instructions to send them. Send it only in that athlete's own chat."""
+    conn = connect()
+    athlete = _get_athlete(conn, athlete_id)
+    cid, _ = _strava_creds()
+    state = uuid.uuid4().hex[:16]
+    conn.execute("INSERT INTO strava_connection (athlete_id, status, pending_state) VALUES (?, 'pending', ?) "
+                 "ON CONFLICT(athlete_id) DO UPDATE SET pending_state=excluded.pending_state, "
+                 "status=CASE WHEN strava_connection.status='connected' THEN 'connected' ELSE 'pending' END",
+                 (athlete_id, state))
+    conn.commit()
+    link = strava.authorize_url(cid, state)
+    return {"ok": True, "link": link, "message_for_athlete": (
+        f"Connect Strava so I can see your runs and workouts automatically:\n1. Open this link: {link}\n"
+        f"2. Tap Authorize (leave 'View data about your activities' ticked).\n3. Your browser will then show an "
+        f"error page -- that's expected. Copy the whole address from the address bar (it starts "
+        f"http://localhost) and send it to me here.\nYour Strava data is used only to coach you, and only you "
+        f"see it."), "athlete": athlete["name"]}
+
+
+def strava_complete_connect(athlete_id, redirect_url):
+    """Finish connecting: the athlete pasted the localhost address (or code).
+    Stores the tokens and pulls the last 4 weeks of activities."""
+    conn = connect()
+    _get_athlete(conn, athlete_id)
+    row = _row(conn.execute("SELECT * FROM strava_connection WHERE athlete_id=?", (athlete_id,)).fetchone())
+    if not row or not row.get("pending_state"):
+        raise ToolError("no connection in progress for this athlete; send a fresh link with strava_connect_link")
+    try:
+        code, state, scope = strava.parse_redirect(redirect_url)
+        if state and state != row["pending_state"]:
+            raise ToolError("that Strava address belongs to a different (or older) link; send a fresh link")
+        if scope is not None and "activity:read" not in scope:
+            raise ToolError("Strava wasn't given permission to read activities. Send the link again and ask them "
+                            "to leave 'View data about your activities' ticked.")
+        cid, secret = _strava_creds()
+        tok = strava.exchange_code(cid, secret, code)
+    except strava.StravaError as e:
+        raise ToolError(str(e))
+    conn.execute("UPDATE strava_connection SET status='connected', pending_state=NULL, strava_athlete_id=?, "
+                 "access_token=?, refresh_token=?, expires_at=?, scope=?, connected_at=?, last_error=NULL "
+                 "WHERE athlete_id=?",
+                 (str((tok.get("athlete") or {}).get("id") or ""), tok["access_token"], tok["refresh_token"],
+                  tok["expires_at"], scope or SCOPE_DEFAULT, _now(), athlete_id))
+    conn.commit()
+    first = strava_sync(athlete_id=athlete_id)
+    res = (first.get("athletes") or [{}])[0]
+    return {"ok": True, "connected": True,
+            "backfilled": {"runs": len(res.get("new_runs", [])), "other": len(res.get("new_other", []))},
+            "note": "Connected. The last 4 weeks were imported as history (no feedback needed on those). From now "
+                    "on runs and workouts arrive automatically."}
+
+
+SCOPE_DEFAULT = strava.SCOPE
+
+
+def _strava_token(conn, row):
+    if (row.get("expires_at") or 0) > strava.now_epoch() + 300:
+        return row["access_token"]
+    cid, secret = _strava_creds()
+    tok = strava.refresh(cid, secret, row["refresh_token"])
+    conn.execute("UPDATE strava_connection SET access_token=?, refresh_token=?, expires_at=? WHERE athlete_id=?",
+                 (tok["access_token"], tok["refresh_token"], tok["expires_at"], row["athlete_id"]))
+    conn.commit()
+    return tok["access_token"]
+
+
+def _strength_before(conn, athlete_id, run_start_iso):
+    t = datetime.fromisoformat(run_start_iso)
+    return [dict(r) for r in conn.execute(
+        "SELECT name, start_at, elapsed_min FROM other_activity WHERE athlete_id=? AND category='strength' "
+        "AND start_at >= ? AND start_at < ?", (athlete_id, (t - timedelta(hours=30)).isoformat(), t.isoformat()))]
+
+
+def strava_sync(athlete_id=None, backfill_days=28):
+    """Pull new activities from Strava for one athlete (or every connected
+    athlete). Runs are logged exactly like uploaded files (history.db +
+    coach.db), matched to the plan and compared; strength / mobility /
+    cross-training go to other_activity. Activities from before the athlete
+    connected are imported as history without needing feedback."""
+    conn = connect()
+    hconn = _hconnect()
+    q = "SELECT * FROM strava_connection WHERE status='connected'" + (" AND athlete_id=?" if athlete_id else "")
+    rows = [dict(r) for r in conn.execute(q, (athlete_id,) if athlete_id else ())]
+    out = []
+    for row in rows:
+        aid = row["athlete_id"]
+        athlete = _get_athlete(conn, aid)
+        res = {"athlete_id": aid, "new_runs": [], "new_other": [], "duplicates": 0, "error": None}
+        try:
+            token = _strava_token(conn, row)
+            first_sync = row.get("last_activity_epoch") is None
+            after = row.get("last_activity_epoch") or strava.days_ago_epoch(backfill_days)
+            # The first import is history (no feedback owed) -- except the last 24 h, which
+            # the athlete will expect a comment on.
+            history_cutoff = (datetime.fromisoformat(row.get("connected_at") or _now())
+                              - timedelta(hours=24)).isoformat()
+            newest = after
+            for a in strava.list_activities(token, after):
+                ext = f"strava:{a['id']}"
+                start_iso = datetime.fromisoformat(a["start_date"].replace("Z", "+00:00")).isoformat()
+                newest = max(newest, strava.epoch_of(start_iso))
+                backfill = first_sync and start_iso < history_cutoff
+                if strava.category(a) == "run":
+                    if conn.execute("SELECT 1 FROM run_log WHERE external_id=?", (ext,)).fetchone():
+                        continue
+                    streams = {} if a.get("manual") else strava.activity_streams(token, a["id"])
+                    parsed = strava.run_summary(a, streams)
+                    dup = _find_duplicate_run(conn, aid, parsed["recorded_at"], parsed.get("distance_km"))
+                    if dup:
+                        conn.execute("UPDATE run_log SET external_id=? WHERE run_log_id=?", (ext, dup["run_log_id"]))
+                        history.record_attempt(hconn, aid, ext, None, "duplicate",
+                                               history.history_id_for(hconn, dup["run_log_id"]))
+                        res["duplicates"] += 1
+                        continue
+                    raw = json.dumps({"activity": a, "streams": streams}).encode()
+                    rid, hid = _log_run(conn, hconn, athlete, parsed, "strava", ext, None, raw=raw, external_id=ext)
+                    history.record_attempt(hconn, aid, ext, None, "recorded", hid)
+                    hconn.commit()
+                    if backfill:
+                        conn.execute("UPDATE run_log SET feedback_sent_at='backfill' WHERE run_log_id=?", (rid,))
+                        conn.commit()
+                        res["new_runs"].append({"run_log_id": rid, "date": start_iso[:10], "backfill": True})
+                        continue
+                    m = match_run_to_program(aid, run_log_id=rid)["match"]
+                    c = compare_run_to_program(rid, m["program_row_id"] if m else None)
+                    res["new_runs"].append({
+                        "run_log_id": rid, "date": start_iso[:10], "name": a.get("name"),
+                        "distance_km": round(parsed["distance_km"], 2), "moving_min": round(parsed["moving_time_min"], 1),
+                        "matched_session": ({k: m[k] for k in ("session_type", "session_label", "session_date")}
+                                            if m else None),
+                        "notes": c["comparison"]["notes"], "actions_needed": c["actions_needed"],
+                        "data_quality": parsed.get("parser_notes")})
+                else:
+                    if conn.execute("SELECT 1 FROM other_activity WHERE external_id=?", (ext,)).fetchone():
+                        continue
+                    detail = strava.activity_detail(token, a["id"]) if strava.category(a) in ("strength", "mobility") \
+                        else None
+                    o = strava.other_summary(a, detail)
+                    oid = _id("act")
+                    conn.execute("INSERT INTO other_activity (activity_id, athlete_id, external_id, data_source, start_at, "
+                                 "category, sport_type, name, description, elapsed_min, moving_min, distance_km, avg_hr, "
+                                 "max_hr, perceived_exertion, feedback_sent_at, created_at) "
+                                 "VALUES (?,?,?,'strava',?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                 (oid, aid, ext, o["start_at"], o["category"], o["sport_type"], o["name"],
+                                  o["description"], o["elapsed_min"], o["moving_min"], o["distance_km"], o["avg_hr"],
+                                  o["max_hr"], o["perceived_exertion"], "backfill" if backfill else None, _now()))
+                    conn.commit()
+                    history.record_other(hconn, aid, o, raw=json.dumps({"activity": a, "detail": detail}).encode())
+                    hconn.commit()
+                    res["new_other"].append({"activity_id": oid, "date": o["start_at"][:10], "category": o["category"],
+                                             "sport_type": o["sport_type"], "name": o["name"],
+                                             "minutes": o["elapsed_min"], "backfill": backfill})
+            conn.execute("UPDATE strava_connection SET last_sync_at=?, last_activity_epoch=?, last_error=NULL "
+                         "WHERE athlete_id=?", (_now(), newest, aid))
+            conn.commit()
+        except strava.StravaRateLimited as e:
+            res["error"] = str(e)
+            conn.execute("UPDATE strava_connection SET last_error=? WHERE athlete_id=?", (str(e), aid))
+            conn.commit()
+            out.append(res)
+            break                                  # stop: every further call would fail too
+        except strava.StravaAuthRevoked as e:
+            res["error"] = str(e) + " -- ask the athlete to reconnect (strava_connect_link)"
+            conn.execute("UPDATE strava_connection SET status='revoked', last_error=? WHERE athlete_id=?", (str(e), aid))
+            conn.commit()
+        except strava.StravaError as e:
+            res["error"] = str(e)
+            conn.execute("UPDATE strava_connection SET last_error=? WHERE athlete_id=?", (str(e), aid))
+            conn.commit()
+        out.append(res)
+    return {"ok": True, "athletes": out}
+
+
+def strava_status(athlete_id=None):
+    conn = connect()
+    q = "SELECT athlete_id, status, connected_at, last_sync_at, last_error FROM strava_connection" + \
+        (" WHERE athlete_id=?" if athlete_id else "")
+    return {"ok": True, "connections": [dict(r) for r in conn.execute(q, (athlete_id,) if athlete_id else ())]}
+
+
+def strava_disconnect(athlete_id):
+    """Disconnect and revoke the coach's Strava access for this athlete (on their request)."""
+    conn = connect()
+    row = _row(conn.execute("SELECT * FROM strava_connection WHERE athlete_id=?", (athlete_id,)).fetchone())
+    if not row:
+        raise ToolError("this athlete never connected Strava")
+    revoked = False
+    if row.get("access_token"):
+        try:
+            revoked = strava.deauthorize(_strava_token(conn, row))
+        except strava.StravaError:
+            revoked = False
+    conn.execute("UPDATE strava_connection SET status='disconnected', access_token=NULL, refresh_token=NULL, "
+                 "expires_at=NULL WHERE athlete_id=?", (athlete_id,))
+    conn.commit()
+    return {"ok": True, "revoked_on_strava": revoked,
+            "note": "Disconnected. Activities already imported stay in their history; send files from now on."}
+
+
+def get_pending_feedback(athlete_id):
+    """Strava activities the coach hasn't commented on yet (newest last), with
+    the plan comparison for runs. After messaging the athlete, call
+    mark_feedback_sent."""
+    conn = connect()
+    runs = []
+    for r in conn.execute("SELECT * FROM run_log WHERE athlete_id=? AND source_format='strava' AND "
+                          "feedback_sent_at IS NULL ORDER BY recorded_at", (athlete_id,)):
+        r = dict(r)
+        prog = _row(conn.execute("SELECT * FROM program WHERE program_row_id=?",
+                                 (r["matched_program_row_id"],)).fetchone()) if r["matched_program_row_id"] else None
+        comp = analysis.compare_run_to_program(r, prog)
+        notes = list(comp.notes)
+        if prog and prog["session_type"] in ("long", "quality", "time_trial"):
+            for st in _strength_before(conn, athlete_id, r["recorded_at"]):
+                notes.append(f"strength session '{st['name']}' within 30 h before this {prog['session_type']} run -- "
+                             f"if it felt heavy, that's a likely reason; keep hard leg work away from the day before "
+                             f"key runs")
+        runs.append({"run_log_id": r["run_log_id"], "date": r["recorded_at"][:10],
+                     "distance_km": round(r["distance_km"] or 0, 2), "moving_min": round(r["moving_time_min"] or 0, 1),
+                     "avg_hr": r["avg_hr"], "hr_drift_delta": r["hr_drift_delta"],
+                     "planned": ({k: prog[k] for k in ("session_type", "session_label", "prescribed_distance_km",
+                                                       "prescribed_duration_min")} if prog else None),
+                     "notes": notes, "data_quality": r["parser_notes"]})
+    other = [dict(o) for o in conn.execute(
+        "SELECT activity_id, start_at, category, sport_type, name, description, elapsed_min, avg_hr, "
+        "perceived_exertion FROM other_activity WHERE athlete_id=? AND feedback_sent_at IS NULL ORDER BY start_at",
+        (athlete_id,))]
+    return {"ok": True, "runs": runs, "other": other, "count": len(runs) + len(other)}
+
+
+def mark_feedback_sent(athlete_id, run_log_ids=None, activity_ids=None):
+    conn = connect()
+    now = _now()
+    for rid in run_log_ids or []:
+        conn.execute("UPDATE run_log SET feedback_sent_at=? WHERE run_log_id=? AND athlete_id=?", (now, rid, athlete_id))
+    for oid in activity_ids or []:
+        conn.execute("UPDATE other_activity SET feedback_sent_at=? WHERE activity_id=? AND athlete_id=?",
+                     (now, oid, athlete_id))
+    conn.commit()
+    return {"ok": True, "marked": len(run_log_ids or []) + len(activity_ids or [])}
+
+
+def log_other_activity(athlete_id, category, start_at, elapsed_min, name=None, description=None,
+                       perceived_exertion=None):
+    """Record a non-run workout the athlete told you about (no Strava): strength,
+    mobility or cross_training. It's already been discussed, so no feedback is pending."""
+    if category not in ("strength", "mobility", "cross_training"):
+        raise ToolError("category must be strength, mobility or cross_training")
+    conn = connect()
+    _get_athlete(conn, athlete_id)
+    start = start_at if "T" in start_at else start_at + "T12:00:00+00:00"
+    oid = _id("act")
+    conn.execute("INSERT INTO other_activity (activity_id, athlete_id, external_id, data_source, start_at, category, "
+                 "sport_type, name, description, elapsed_min, perceived_exertion, feedback_sent_at, created_at) "
+                 "VALUES (?,?,NULL,'athlete_reported',?,?,NULL,?,?,?,?,?,?)",
+                 (oid, athlete_id, start, category, name, description, elapsed_min, perceived_exertion, _now(), _now()))
+    conn.commit()
+    return {"ok": True, "activity_id": oid}
+
+
 def _read_xlsx(path):
     """First worksheet of an .xlsx as a 2-D list of strings (stdlib only)."""
     import zipfile
@@ -1873,6 +2258,8 @@ TOOLS = {f.__name__: f for f in [
     get_trends, get_squad_overview, get_run_history, export_run_file, backfill_history,
     ingest_sheet_file, sync_telegram_allowlist, get_onboarding_status, review_week,
     get_review_tasks, record_safety_review, verify_race_info, confirm_race_info,
+    strava_connect_link, strava_complete_connect, strava_sync, strava_status, strava_disconnect,
+    get_pending_feedback, mark_feedback_sent, log_other_activity,
 ]}
 
 
@@ -1883,7 +2270,7 @@ def call_tool(name, args=None):
     _DEPTH[0] += 1
     try:
         return TOOLS[name](**(args or {}))
-    except (ToolError, ValueError, TypeError, KeyError, OSError, sqlite3.Error) as e:
+    except (ToolError, strava.StravaError, ValueError, TypeError, KeyError, OSError, sqlite3.Error) as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}" if not isinstance(e, ToolError) else str(e)}
     finally:
         _DEPTH[0] -= 1

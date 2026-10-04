@@ -80,6 +80,18 @@ CREATE TABLE IF NOT EXISTS upload_attempts (
     detail              TEXT
 );
 
+CREATE TABLE IF NOT EXISTS other_activities (
+    history_id          TEXT PRIMARY KEY,
+    athlete_id          TEXT NOT NULL,
+    external_id         TEXT NOT NULL UNIQUE,  -- e.g. 'strava:123456'
+    start_at            TEXT NOT NULL,
+    logged_at           TEXT NOT NULL,
+    category            TEXT NOT NULL,         -- 'strength' | 'mobility' | 'cross_training'
+    sport_type          TEXT,
+    summary_json        TEXT NOT NULL,         -- name, description, durations, HR, perceived exertion
+    raw_zlib            BLOB                   -- the source record (e.g. Strava activity JSON), compressed
+);
+
 CREATE INDEX IF NOT EXISTS idx_runs_athlete ON runs(athlete_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_events_run ON run_events(history_id, occurred_at);
 
@@ -90,6 +102,10 @@ BEGIN SELECT RAISE(ABORT, 'history.db is append-only: runs cannot be deleted'); 
 CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON run_events
 BEGIN SELECT RAISE(ABORT, 'history.db is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON run_events
+BEGIN SELECT RAISE(ABORT, 'history.db is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS other_no_update BEFORE UPDATE ON other_activities
+BEGIN SELECT RAISE(ABORT, 'history.db is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS other_no_delete BEFORE DELETE ON other_activities
 BEGIN SELECT RAISE(ABORT, 'history.db is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS attempts_no_update BEFORE UPDATE ON upload_attempts
 BEGIN SELECT RAISE(ABORT, 'history.db is append-only'); END;
@@ -131,21 +147,24 @@ def record_attempt(hconn, athlete_id, file_name, sha, outcome, history_id=None, 
                   (_id("upl"), athlete_id, _now(), file_name, sha, outcome, history_id, detail))
 
 
-def record_run(hconn, athlete, path, fmt, parsed, coach_run_log_id, athlete_notes=None):
+def record_run(hconn, athlete, path, fmt, parsed, coach_run_log_id, athlete_notes=None, raw=None,
+               source_name=None):
     """Insert the run (with original file + all samples). Returns history_id,
-    or the existing history_id if this athlete already has a run at that start time."""
+    or the existing history_id if this athlete already has a run at that start time.
+    For sources without a file (Strava), pass raw=<bytes of the source record>."""
     existing = hconn.execute("SELECT history_id FROM runs WHERE athlete_id=? AND recorded_at=?",
                              (athlete["athlete_id"], parsed["recorded_at"])).fetchone()
     if existing:
         return existing["history_id"], False
-    with open(path, "rb") as f:
-        raw = f.read()
+    if raw is None:
+        with open(path, "rb") as f:
+            raw = f.read()
     points = parsed.get("points") or []
     hid = _id("hist")
     hconn.execute(
         "INSERT INTO runs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (hid, athlete["athlete_id"], athlete.get("name"), athlete.get("email"), parsed["recorded_at"], _now(),
-         os.path.basename(path), fmt, hashlib.sha256(raw).hexdigest(), len(raw), zlib.compress(raw, 9),
+         source_name or os.path.basename(path), fmt, hashlib.sha256(raw).hexdigest(), len(raw), zlib.compress(raw, 9),
          parsed.get("distance_km"), parsed.get("elapsed_time_min"), parsed.get("moving_time_min"),
          parsed.get("avg_hr"), parsed.get("max_hr"), parsed.get("elevation_gain_m"), parsed.get("elevation_loss_m"),
          parsed.get("avg_pace_sec_per_km"), json.dumps(parsed.get("splits"), default=str),
@@ -154,6 +173,17 @@ def record_run(hconn, athlete, path, fmt, parsed, coach_run_log_id, athlete_note
          parsed.get("parser_notes"), athlete_notes, coach_run_log_id))
     add_event(hconn, hid, "logged", {"coach_run_log_id": coach_run_log_id})
     return hid, True
+
+
+def record_other(hconn, athlete_id, summary, raw=None):
+    """Append a non-run workout (strength, mobility, cross-training). Idempotent by external_id."""
+    if hconn.execute("SELECT 1 FROM other_activities WHERE external_id=?", (summary["external_id"],)).fetchone():
+        return False
+    hconn.execute("INSERT INTO other_activities VALUES (?,?,?,?,?,?,?,?,?)",
+                  (_id("hoth"), athlete_id, summary["external_id"], summary["start_at"], _now(), summary["category"],
+                   summary.get("sport_type"), json.dumps(summary, default=str),
+                   zlib.compress(raw, 9) if raw else None))
+    return True
 
 
 def add_event(hconn, history_id, event_type, detail=None):

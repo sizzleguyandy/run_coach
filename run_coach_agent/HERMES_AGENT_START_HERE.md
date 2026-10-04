@@ -112,7 +112,15 @@ what you changed.
    review of what the athlete wrote, and for an independent race
    check. If it's missing, enable delegation for the coach profile,
    or tell your owner.
-6. **Google Sheets access (optional).** The owner normally sends the
+6. **Strava (optional).** Set up later via `BOB_TELEGRAM_SETUP.md`
+   step 4b. Nothing to check now.
+7. **Upgrading an existing install with athletes?** Their hourly
+   check-in scripts are rewritten automatically the next time
+   `install_checkin_gate` runs for them. Ask the coach (in each
+   athlete's chat, or say "refresh every athlete's check-in job") to
+   run it and update the existing job's schedule to `0 * * * *` and
+   its prompt to the returned one. Don't create a second job.
+8. **Google Sheets access (optional).** The owner normally sends the
    athletes' Sheet as a downloaded .csv/.xlsx file, which needs no
    Google access. Only if they want to send Sheet links: set up
    `google-workspace` in the coach profile for Sheets only

@@ -10,6 +10,10 @@ file is loaded into their context.
 - `history.db`: the permanent record of every run: original files,
   every data point, every upload attempt. Append-only; it refuses
   changes and deletions. **Both databases are backed up daily.**
+- Strava: athletes who connect have runs and workouts synced hourly
+  by their check-in job. Credentials are in the profile's `.env`
+  (`STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET`). Strava data is shown
+  only to the athlete it belongs to.
 - `uploads/`: save athletes' run files (.fit/.gpx) here before
   parsing, if the gateway hasn't already saved them somewhere.
 - `backups/`: daily copies of the database, written by the

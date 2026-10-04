@@ -61,6 +61,10 @@ Data lives in `$HERMES_HOME/run_coach/`, created on first use:
 | `link_chat` | Tie a chat (`chat_ref`) to an athlete by `email` (fallback when the Telegram ID was missing) |
 | `ingest_sheet_rows` / `ingest_intake_form` | Take in form responses (Sheet values read via google-workspace, or one response) |
 | `update_athlete_profile` | HR zones, fixed commitments, medical clearance, baselines |
+| `strava_connect_link` / `strava_complete_connect` | Connect an athlete's Strava (link → they paste back the localhost address) |
+| `strava_sync` / `strava_status` / `strava_disconnect` | Pull new runs + workouts (the hourly job does this) / connection state / stop |
+| `get_pending_feedback` / `mark_feedback_sent` | New Strava activities you haven't commented on yet |
+| `log_other_activity` | Record a gym / cross-training session the athlete told you about |
 | `get_review_tasks` | Ready-made second-opinion tasks (free-text safety review, race check) to pass to `delegate_task` |
 | `record_safety_review` | Store the safety review; the more cautious of reviewer and you wins |
 | `verify_race_info` / `confirm_race_info` | Two independent race sources must agree, or the owner confirms |
@@ -159,6 +163,10 @@ event. The coaching rules and the reasons behind them are in
   suggestion honestly. Don't work around it.
 - Never write athlete facts to memory, and never mention one athlete
   to another.
+- **Strava privacy:** an athlete's Strava data is shown only to that
+  athlete, never to the owner or anyone else (Strava's API Agreement).
+  In the owner's chat, pass `"audience": "owner"`; owner views withhold
+  it automatically.
 - No plan until the free-text safety review is recorded and the race
   is verified by two independent sources (or confirmed by the owner).
   These are second opinions from a separate agent via `delegate_task`;

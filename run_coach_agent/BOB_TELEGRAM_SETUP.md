@@ -111,6 +111,33 @@ in whichever profile runs it, so this has to happen inside bob:
    `/google-workspace set up Google access for Sheets only (--services sheets)`
 2. Bob walks them through the Google sign-in in their browser.
 
+## Step 4b — Strava (optional, recommended)
+
+With Strava connected, athletes' runs and strength workouts arrive
+automatically. ASK your owner whether they want it. If yes:
+1. They open strava.com/settings/api while logged into **their own**
+   Strava account, and create an application:
+   - Name: e.g. "Run Coach"; Category: Training; Website: anything
+     (e.g. their Telegram bot link).
+   - **Authorization Callback Domain: `localhost`**
+2. They copy the **Client ID** and **Client Secret** into bob's
+   `.env`, not into chat:
+   ```
+   STRAVA_CLIENT_ID=<client id>
+   STRAVA_CLIENT_SECRET=<client secret>
+   ```
+   Check both lines are there without printing the secret.
+3. Tell them: a new Strava app allows only **1** athlete. On the same
+   page they can upgrade to **10**. Beyond that they need to submit
+   Strava's Developer Program form (about 7–10 business days).
+4. Tell them, plainly: Strava's API Agreement only allows an athlete's
+   Strava data to be shown to that athlete. Bob uses it only when
+   coaching that athlete, and won't show it to the owner.
+5. Optionally, ASK the owner to add this question to the Google Form,
+   worded exactly: `Do you record your runs on Strava?` (Yes / No).
+
+No gateway restart is needed for Strava.
+
 ## Step 5 — How athletes get in (tell your owner)
 
 Telegram doesn't let a bot message someone first, and Hermes turns

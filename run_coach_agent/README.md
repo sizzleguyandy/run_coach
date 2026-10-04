@@ -34,13 +34,44 @@ gateway such as Telegram.
 | `memories/USER.md` | Agent-maintained profile of **you** | Not shipped. The agent fills it in as it learns about the owner |
 | `skills/fitness/run-coach/SKILL.md` | On-demand skill (`/run-coach`) | When to use it, every tool, the core procedure, pitfalls, verification |
 | `skills/fitness/run-coach/references/` | Loaded on demand | `playbooks.md` (step by step), `coaching-rules.md` (rules and reasons), `intake-form.md` (form spec), `tools_schema.json` |
-| `skills/fitness/run-coach/scripts/` | Skill scripts | `coach_tools.py` (all tools, command line), race and general-fitness generators, `trends.py`, `history.py`, FIT/GPX parsers, analysis, `schema.sql`, `tests/` |
+| `skills/fitness/run-coach/scripts/` | Skill scripts | `coach_tools.py` (all tools, command line), race and general-fitness generators, `strava.py`, `trends.py`, `history.py`, FIT/GPX parsers, analysis, `schema.sql`, `tests/` |
 | `skills/fitness/run-coach/examples/` | Examples | Sample race and general-fitness form responses, a sample GPX |
 | `run_coach/AGENTS.md` | Project rules for the workspace | Loaded into cron jobs, which run with `workdir` set here |
 | `run_coach/coach.db` | Data: live coaching state | Plans, sessions, signals. Created on first use, outside the skill so updates never touch it |
 | `run_coach/history.db` | Data: permanent run history | Every run ever uploaded: the original file, every data point, every upload attempt (including failed and duplicate ones), and what each run was matched to. Append-only: the database rejects changes and deletions |
 | `scripts/run-coach-backup.py` | Cron script (no-agent) | Daily backup of both databases, keeps 30 of each |
 | `scripts/run-coach-due-<id>.py` | Cron pre-run gate | Generated per athlete; only wakes the agent when a check-in is due |
+
+## Strava
+
+Athletes who connect Strava don't need to send files:
+- Their runs **and** strength, yoga and cross-training workouts are
+  synced every hour.
+- Runs are matched to the plan and compared, and the athlete gets
+  feedback.
+- A strength session the day before a key run is flagged.
+- Race plans start from their real last 4 weeks rather than the form.
+
+Connecting is one link: they authorise on Strava, then paste the
+resulting `http://localhost…` address back to the bot. No web server
+is needed.
+
+**Before you start:**
+1. Create a Strava API app and set its callback domain to
+   `localhost`. Put `STRAVA_CLIENT_ID` and `STRAVA_CLIENT_SECRET` in the
+   coach profile's `.env`.
+2. New Strava apps allow **1** connected athlete. Self-upgrade to
+   **10** on the API settings page; more needs Strava's Developer
+   Program review (about 7–10 business days).
+3. **Strava's API Agreement** (Nov 2024) allows an athlete's Strava
+   data to be shown only to that athlete, and forbids using it to train
+   AI models. So the coach uses it only in that athlete's own
+   conversation, and your owner views (squad overview, owner trends
+   and history) withhold it. If you want to see your athletes' Strava
+   data yourself, ask Strava first (developers@strava.com). The coach
+   doesn't do this.
+
+File uploads keep working for everyone else.
 
 ## Safety checks before any plan
 
@@ -180,7 +211,7 @@ Created by the agent during setup and onboarding, following
 
 ```bash
 cd hermes/skills/fitness/run-coach/scripts
-python3 -m unittest discover -s tests        # 29 tests (incl. safety checks, full athlete lifecycles, Sheet onboarding, trends, history)
+python3 -m unittest discover -s tests        # 33 tests (incl. safety checks, full athlete lifecycles, Sheet onboarding, trends, history)
 python3 general_fitness.py                   # preview a general-fitness block
 python3 race_plan.py                         # preview a race build
 ```
